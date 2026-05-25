@@ -1,0 +1,15 @@
+{
+  "originHash" : "70176fd8926cc72ee74af5cbd31eae357e993a4128f2788cc4b1bf1d7cc49168",
+  "pins" : [
+    {
+      "identity" : "mp3chapterreader",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/holgerkrupp/mp3ChapterReader",
+      "state" : {
+        "branch" : "main",
+        "revision" : "cbc5bebbd0af1cf902932fc79e6579bcae03d37b"
+      }
+    }
+  ],
+  "version" : 3
+}
