@@ -7,7 +7,7 @@ struct SidebarView: View {
         VStack(spacing: 18) {
             DropZoneView()
 
-            List(selection: $model.selectedID) {
+            List(selection: $model.selectedIDs) {
                 ForEach(model.documents) { document in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(document.displayName)

@@ -13,5 +13,8 @@ struct IDTagEditorApp: App {
         WindowGroup {
             ContentView()
         }
+        .commands {
+            IDTagEditorCommands()
+        }
     }
 }

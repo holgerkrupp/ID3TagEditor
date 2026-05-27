@@ -2,7 +2,13 @@ import SwiftUI
 
 struct FrameRowView: View {
     let frame: FrameReport
+    var editor: EditorSession?
+    @Binding var selection: TagSelection?
     @State private var isExpanded = false
+
+    private var isSelected: Bool {
+        selection?.frameSelectionID == frame.selectionID
+    }
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -26,9 +32,26 @@ struct FrameRowView: View {
                                     .foregroundStyle(.secondary)
                                     .frame(width: 140, alignment: .leading)
 
-                                Text(detail.value)
-                                    .font(.callout)
-                                    .textSelection(.enabled)
+                                if editor?.isEditing == true, detail.label == "Values", frame.frameID.hasPrefix("T") {
+                                    EditableCommitTextField(
+                                        title: detail.label,
+                                        value: editor?.textValue(for: frame.frameID) ?? detail.value,
+                                        axis: .vertical
+                                    ) { value in
+                                        editor?.setTextFrame(frame.frameID, value: value)
+                                    }
+                                } else if editor?.isEditing == true, detail.label == "URL", frame.frameID.hasPrefix("W") {
+                                    EditableCommitTextField(
+                                        title: detail.label,
+                                        value: editor?.urlValue(for: frame.frameID) ?? detail.value
+                                    ) { value in
+                                        editor?.setURLFrame(frame.frameID, url: value)
+                                    }
+                                } else {
+                                    Text(detail.value)
+                                        .font(.callout)
+                                        .textSelection(.enabled)
+                                }
                             }
                         }
                     }
@@ -41,7 +64,7 @@ struct FrameRowView: View {
                             .foregroundStyle(.secondary)
 
                         ForEach(frame.children) { child in
-                            FrameRowView(frame: child)
+                            FrameRowView(frame: child, editor: editor, selection: $selection)
                         }
                     }
                     .padding(.top, 4)
@@ -72,5 +95,15 @@ struct FrameRowView: View {
         }
         .padding(14)
         .glassPanel(cornerRadius: 16)
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.accentColor.opacity(0.72), lineWidth: 2)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture {
+            selection = TagSelection(frameSelectionID: frame.selectionID, byteRange: frame.byteRange)
+        }
     }
 }

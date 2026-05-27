@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TagSummaryView: View {
     let document: TagDocument
+    @Binding var selection: TagSelection?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -12,14 +13,14 @@ struct TagSummaryView: View {
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 12)], alignment: .leading, spacing: 12) {
                         ForEach(document.topLevelTagFrames) { frame in
-                            TagBodyCard(frame: frame)
+                            TagBodyCard(frame: frame, editor: document.editorSession, selection: $selection)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
 
-            ChapterTableView(chapters: document.chapters)
+            ChapterTableView(document: document, selection: $selection)
         }
     }
 }

@@ -5,16 +5,41 @@ struct TagDocument: Identifiable {
     let id = UUID()
     var displayName: String
     var sourceDescription: String
-    var header: ID3HeaderReport
-    var frames: [FrameReport]
-    var rawTagData: Data
+    var sourceURL: URL?
+    var isRemote: Bool
+    var content: TagContent
+    var editorSession: EditorSession?
+
+    var header: ID3HeaderReport {
+        presentedContent.header
+    }
+
+    var frames: [FrameReport] {
+        presentedContent.frames
+    }
+
+    var rawTagData: Data {
+        presentedContent.rawTagData
+    }
 
     var topLevelTagFrames: [FrameReport] {
-        frames.filter { !$0.isChapter && !$0.isTableOfContents }
+        presentedContent.topLevelTagFrames
     }
 
     var chapters: [ChapterReport] {
-        frames.compactMap(\.chapter)
+        presentedContent.chapters
+    }
+
+    var selectableFrames: [FrameReport] {
+        presentedContent.selectableFrames
+    }
+
+    var canEdit: Bool {
+        !isRemote && sourceURL != nil && !content.rawTagData.isEmpty && editorSession != nil
+    }
+
+    var presentedContent: TagContent {
+        editorSession?.content ?? content
     }
 
     @MainActor
@@ -37,9 +62,10 @@ struct TagDocument: Identifiable {
         TagDocument(
             displayName: "Unable to read ID3 tag",
             sourceDescription: source,
-            header: .empty(message: message),
-            frames: [],
-            rawTagData: Data()
+            sourceURL: nil,
+            isRemote: true,
+            content: .empty(message: message),
+            editorSession: nil
         )
     }
 
@@ -57,12 +83,14 @@ struct TagDocument: Identifiable {
             throw TagReadError.noID3Tag
         }
 
+        let content = TagContent(data: data, reader: reader)
         return TagDocument(
             displayName: url.lastPathComponent,
             sourceDescription: url.path(percentEncoded: false),
-            header: ID3HeaderReport(data: data, reader: reader),
-            frames: reader.frames.map(FrameReport.init(frame:)),
-            rawTagData: Self.tagData(from: data, reader: reader)
+            sourceURL: url,
+            isRemote: false,
+            content: content,
+            editorSession: EditorSession(sourceFileURL: url, mp3Data: data, reader: reader)
         )
     }
 
@@ -76,15 +104,10 @@ struct TagDocument: Identifiable {
         return TagDocument(
             displayName: url.lastPathComponent.isEmpty ? url.host() ?? "Remote MP3" : url.lastPathComponent,
             sourceDescription: url.absoluteString,
-            header: ID3HeaderReport(data: data, reader: reader),
-            frames: reader.frames.map(FrameReport.init(frame:)),
-            rawTagData: Self.tagData(from: data, reader: reader)
+            sourceURL: nil,
+            isRemote: true,
+            content: TagContent(data: data, reader: reader),
+            editorSession: nil
         )
-    }
-
-    private static func tagData(from data: Data, reader: mp3ChapterReader) -> Data {
-        let footerSize = reader.hasFooter ? 10 : 0
-        let tagByteCount = min(data.count, 10 + reader.tagSize + footerSize)
-        return data.prefix(tagByteCount)
     }
 }

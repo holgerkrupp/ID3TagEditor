@@ -15,12 +15,19 @@ struct FrameReport: Identifiable {
     var children: [FrameReport]
     var imageData: Data?
     var chapter: ChapterReport?
+    var selectionID: String
+    var byteRange: Range<Int>?
 
     var isChapter: Bool { chapter != nil }
     var isTableOfContents: Bool { frameID == "CTOC" }
+    var flattenedChildren: [FrameReport] {
+        children.flatMap { child in
+            [child] + child.flattenedChildren
+        }
+    }
 
     @MainActor
-    init(frame: Frame) {
+    init(frame: Frame, selectionID: String? = nil, byteRange: Range<Int>? = nil, childByteRanges: [FrameByteRange] = []) {
         frameID = frame.frameID
         originalID = frame.originalFrameID
         tagName = ID3FrameNames.name(for: frame.frameID)
@@ -29,11 +36,18 @@ struct FrameReport: Identifiable {
         totalSize = headerSize + bodySize
         flagsSummary = frame.flags.summary
         imageData = (frame as? PictureFrame)?.image
+        self.byteRange = byteRange
+        self.selectionID = selectionID ?? "\(frame.frameID)@\(byteRange?.lowerBound ?? -1)"
         let parsedDetails = FrameReport.details(for: frame)
-        let parsedChildren = FrameReport.children(for: frame)
+        let parsedChildren = FrameReport.children(for: frame, parentSelectionID: self.selectionID, ranges: childByteRanges)
         let parsedChapter: ChapterReport?
         if let chapterFrame = frame as? ChapFrame {
-            parsedChapter = ChapterReport(chapter: chapterFrame, children: parsedChildren)
+            parsedChapter = ChapterReport(
+                chapter: chapterFrame,
+                children: parsedChildren,
+                selectionID: self.selectionID,
+                byteRange: byteRange
+            )
         } else {
             parsedChapter = nil
         }
@@ -109,13 +123,29 @@ struct FrameReport: Identifiable {
     }
 
     @MainActor
-    private static func children(for frame: Frame) -> [FrameReport] {
+    private static func children(for frame: Frame, parentSelectionID: String, ranges: [FrameByteRange]) -> [FrameReport] {
         if let chapter = frame as? ChapFrame {
-            return chapter.frames.map(FrameReport.init(frame:))
+            return chapter.frames.enumerated().map { index, child in
+                let range = index < ranges.count ? ranges[index] : nil
+                return FrameReport(
+                    frame: child,
+                    selectionID: "\(parentSelectionID)/\(range?.id ?? child.frameID)@\(range?.range.lowerBound ?? index)",
+                    byteRange: range?.range,
+                    childByteRanges: range?.childRanges ?? []
+                )
+            }
         }
 
         if let toc = frame as? CTOCFrame {
-            return toc.frames.map(FrameReport.init(frame:))
+            return toc.frames.enumerated().map { index, child in
+                let range = index < ranges.count ? ranges[index] : nil
+                return FrameReport(
+                    frame: child,
+                    selectionID: "\(parentSelectionID)/\(range?.id ?? child.frameID)@\(range?.range.lowerBound ?? index)",
+                    byteRange: range?.range,
+                    childByteRanges: range?.childRanges ?? []
+                )
+            }
         }
 
         return []
@@ -145,6 +175,8 @@ struct ChapterReport: Identifiable {
     var link: String?
     var imageData: Data?
     var embeddedFrames: [FrameReport]
+    var selectionID: String
+    var byteRange: Range<Int>?
 
     var timeRange: String {
         "\(formatTime(startTime)) - \(formatTime(endTime))"
@@ -154,13 +186,15 @@ struct ChapterReport: Identifiable {
         formatTime(max(0, endTime - startTime))
     }
 
-    init(chapter: ChapFrame, children: [FrameReport]) {
+    init(chapter: ChapFrame, children: [FrameReport], selectionID: String, byteRange: Range<Int>?) {
         elementID = chapter.elementID
         startTime = chapter.startTime / 1000
         endTime = chapter.endTime / 1000
         startOffset = chapter.startOffset
         endOffset = chapter.endOffset
         embeddedFrames = children
+        self.selectionID = selectionID
+        self.byteRange = byteRange
         title = children.first { $0.frameID == "TIT2" }?.summary.nilIfEmpty ?? chapter.elementID
         subtitle = children.first { $0.frameID == "TIT3" }?.summary ?? ""
         link = children.first { $0.frameID.hasPrefix("W") }?.summary.nilIfEmpty

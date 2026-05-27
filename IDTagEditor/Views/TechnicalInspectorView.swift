@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TechnicalInspectorView: View {
     let document: TagDocument
+    @Binding var selection: TagSelection?
 
     var body: some View {
         HeaderSectionView(header: document.header)
@@ -9,7 +10,7 @@ struct TechnicalInspectorView: View {
         SectionPanel("Frames", subtitle: "\(document.frames.count) frame\(document.frames.count == 1 ? "" : "s")") {
             LazyVStack(alignment: .leading, spacing: 10) {
                 ForEach(document.frames) { frame in
-                    FrameRowView(frame: frame)
+                    FrameRowView(frame: frame, editor: document.editorSession, selection: $selection)
                 }
             }
         }

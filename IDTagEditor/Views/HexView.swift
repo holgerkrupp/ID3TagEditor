@@ -6,6 +6,11 @@ import AppKit
 
 struct HexView: View {
     let document: TagDocument
+    @Binding var selection: TagSelection?
+
+    private var editor: EditorSession? {
+        document.editorSession
+    }
 
     var body: some View {
         SectionPanel("Hex View", subtitle: "\(document.rawTagData.count) ID3 tag bytes") {
@@ -13,13 +18,52 @@ struct HexView: View {
                 Text("No tag bytes are available.")
                     .foregroundStyle(.secondary)
             } else {
-                HexEditorRepresentable(data: document.rawTagData)
+                VStack(alignment: .leading, spacing: 10) {
+                    if let editor, !editor.diagnostics.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(editor.diagnostics) { diagnostic in
+                                Text("\(diagnostic.severity.rawValue): \(diagnostic.message)")
+                                    .font(.caption)
+                                    .foregroundStyle(diagnostic.isFatal ? .red : .orange)
+                            }
+                        }
+                    }
+
+                    if editor?.isEditing == true {
+                        HStack {
+                            Button("Recalculate Sizes") {
+                                editor?.recalculateSizes()
+                            }
+                            Button("Rebuild From Structured Tags") {
+                                editor?.rebuildFromStructuredTags()
+                            }
+                            Button("Discard Hex Edits", role: .destructive) {
+                                editor?.discardHexEdits()
+                            }
+                            Spacer()
+                            Text("Type hex digits in the byte pane or printable characters in the ASCII pane.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    HexEditorRepresentable(
+                        data: editor?.currentTagData ?? document.rawTagData,
+                        isEditable: editor?.isEditing == true,
+                        diagnostics: editor?.diagnostics ?? [],
+                        selectableFrames: document.selectableFrames,
+                        selection: $selection,
+                        onDataChange: { data in
+                            editor?.applyHexEdit(data)
+                        }
+                    )
                     .frame(minHeight: 520)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(.separator.opacity(0.45), lineWidth: 1)
                     }
+                }
             }
         }
     }
@@ -28,10 +72,21 @@ struct HexView: View {
 #if os(macOS)
 private struct HexEditorRepresentable: NSViewRepresentable {
     var data: Data
+    var isEditable: Bool
+    var diagnostics: [ID3ValidationDiagnostic]
+    var selectableFrames: [FrameReport]
+    @Binding var selection: TagSelection?
+    var onDataChange: (Data) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
         let editorView = HexEditorCanvas()
         editorView.data = data
+        editorView.isEditable = isEditable
+        editorView.diagnostics = diagnostics
+        editorView.selectableFrames = selectableFrames
+        editorView.externalSelection = selection
+        editorView.onDataChange = onDataChange
+        editorView.onSelectionChange = { selection = $0 }
 
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -50,6 +105,12 @@ private struct HexEditorRepresentable: NSViewRepresentable {
         }
 
         editorView.data = data
+        editorView.isEditable = isEditable
+        editorView.diagnostics = diagnostics
+        editorView.selectableFrames = selectableFrames
+        editorView.externalSelection = selection
+        editorView.onDataChange = onDataChange
+        editorView.onSelectionChange = { selection = $0 }
     }
 }
 
@@ -90,19 +151,51 @@ private final class HexEditorCanvas: NSView {
             guard data != oldValue else {
                 return
             }
-            selectedByteRange = nil
-            anchorByteIndex = nil
-            activeSection = nil
+            if selectedByteRange == nil {
+                selectedByteRange = data.isEmpty ? nil : 0..<1
+            }
             updateFrameSize()
             needsDisplay = true
         }
     }
 
+    var isEditable = false {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    var diagnostics: [ID3ValidationDiagnostic] = [] {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    var selectableFrames: [FrameReport] = []
+    var externalSelection: TagSelection? {
+        didSet {
+            guard externalSelection != oldValue else {
+                return
+            }
+            if externalSelection?.frameSelectionID == lastPublishedSelectionID {
+                lastPublishedSelectionID = nil
+                return
+            }
+            selectedByteRange = externalSelection?.byteRange
+            activeSection = nil
+            needsDisplay = true
+        }
+    }
+
+    var onDataChange: ((Data) -> Void)?
+    var onSelectionChange: ((TagSelection?) -> Void)?
+
     private var selectedByteRange: Range<Int>?
     private var anchorByteIndex: Int?
     private var activeSection: Section?
+    private var pendingHexNibble: Character?
+    private var lastPublishedSelectionID: String?
     private let font = NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
-    private let secondaryFont = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
 
     private lazy var textAttributes: [NSAttributedString.Key: Any] = [
         .font: font,
@@ -158,12 +251,14 @@ private final class HexEditorCanvas: NSView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        pendingHexNibble = nil
 
         let point = convert(event.locationInWindow, from: nil)
         guard let hit = hitTestByte(at: point) else {
             selectedByteRange = nil
             anchorByteIndex = nil
             activeSection = nil
+            onSelectionChange?(nil)
             needsDisplay = true
             return
         }
@@ -171,6 +266,7 @@ private final class HexEditorCanvas: NSView {
         anchorByteIndex = hit.byteIndex
         activeSection = hit.section
         selectedByteRange = hit.byteIndex..<(hit.byteIndex + 1)
+        publishSelection(for: selectedByteRange)
         needsDisplay = true
     }
 
@@ -184,6 +280,7 @@ private final class HexEditorCanvas: NSView {
         let lower = min(anchorByteIndex, byteIndex)
         let upper = max(anchorByteIndex, byteIndex) + 1
         selectedByteRange = lower..<upper
+        publishSelection(for: selectedByteRange)
         autoscroll(with: event)
         needsDisplay = true
     }
@@ -214,6 +311,26 @@ private final class HexEditorCanvas: NSView {
             return
         }
 
+        guard isEditable, let selectedByteRange, let firstIndex = selectedByteRange.first else {
+            super.keyDown(with: event)
+            return
+        }
+
+        if activeSection == .hex, let character = event.charactersIgnoringModifiers?.first, character.isHexDigit {
+            replaceHexNibble(character, at: firstIndex)
+            return
+        }
+
+        if activeSection == .ascii,
+           let scalar = event.characters?.unicodeScalars.first,
+           scalar.isASCII,
+           scalar.value >= 0x20,
+           scalar.value <= 0x7E {
+            replaceByte(UInt8(scalar.value), at: firstIndex)
+            advanceSelection(from: firstIndex)
+            return
+        }
+
         super.keyDown(with: event)
     }
 
@@ -236,6 +353,7 @@ private final class HexEditorCanvas: NSView {
             }
 
             let byte = data[byteIndex]
+            drawDiagnosticHighlight(byteIndex: byteIndex)
             drawCellHighlight(byteIndex: byteIndex, section: .hex)
             drawCellHighlight(byteIndex: byteIndex, section: .ascii)
 
@@ -246,6 +364,18 @@ private final class HexEditorCanvas: NSView {
 
     private func drawOffset(_ offset: Int, y: CGFloat) {
         String(format: "%08X", offset).draw(at: NSPoint(x: Metrics.leftInset, y: y + 2), withAttributes: offsetAttributes)
+    }
+
+    private func drawDiagnosticHighlight(byteIndex: Int) {
+        guard diagnostics.contains(where: { $0.byteRange?.contains(byteIndex) == true }) else {
+            return
+        }
+
+        let row = byteIndex / Metrics.bytesPerRow
+        let column = byteIndex % Metrics.bytesPerRow
+        NSColor.systemRed.withAlphaComponent(0.22).setFill()
+        NSBezierPath(roundedRect: hexCellRect(row: row, column: column).insetBy(dx: 1, dy: 2), xRadius: Metrics.highlightCornerRadius, yRadius: Metrics.highlightCornerRadius).fill()
+        NSBezierPath(roundedRect: asciiCellRect(row: row, column: column).insetBy(dx: 0, dy: 2), xRadius: Metrics.highlightCornerRadius, yRadius: Metrics.highlightCornerRadius).fill()
     }
 
     private func drawCellHighlight(byteIndex: Int, section: Section) {
@@ -262,6 +392,77 @@ private final class HexEditorCanvas: NSView {
 
         color.setFill()
         NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 2), xRadius: Metrics.highlightCornerRadius, yRadius: Metrics.highlightCornerRadius).fill()
+    }
+
+    private func replaceHexNibble(_ character: Character, at index: Int) {
+        if let pendingHexNibble {
+            let byteString = String([pendingHexNibble, character])
+            self.pendingHexNibble = nil
+            if let value = UInt8(byteString, radix: 16) {
+                replaceByte(value, at: index)
+                advanceSelection(from: index)
+            }
+        } else {
+            pendingHexNibble = character
+        }
+    }
+
+    private func replaceByte(_ byte: UInt8, at index: Int) {
+        guard data.indices.contains(index) else {
+            return
+        }
+
+        var edited = data
+        edited[index] = byte
+        data = edited
+        onDataChange?(edited)
+    }
+
+    private func advanceSelection(from index: Int) {
+        guard !data.isEmpty else {
+            selectedByteRange = nil
+            return
+        }
+
+        let next = min(index + 1, data.count - 1)
+        selectedByteRange = next..<(next + 1)
+        anchorByteIndex = next
+        publishSelection(for: selectedByteRange)
+        needsDisplay = true
+    }
+
+    private func publishSelection(for byteRange: Range<Int>?) {
+        guard let byteRange else {
+            onSelectionChange?(nil)
+            return
+        }
+
+        let matchingFrame = selectableFrames
+            .compactMap { frame -> (frame: FrameReport, overlap: Int, size: Int)? in
+                guard let frameRange = frame.byteRange else {
+                    return nil
+                }
+                let overlap = max(0, min(byteRange.upperBound, frameRange.upperBound) - max(byteRange.lowerBound, frameRange.lowerBound))
+                guard overlap > 0 else {
+                    return nil
+                }
+                return (frame, overlap, frameRange.count)
+            }
+            .sorted {
+                if $0.overlap == $1.overlap {
+                    return $0.size < $1.size
+                }
+                return $0.overlap > $1.overlap
+            }
+            .first?.frame
+
+        if let matchingFrame {
+            lastPublishedSelectionID = matchingFrame.selectionID
+            onSelectionChange?(TagSelection(frameSelectionID: matchingFrame.selectionID, byteRange: matchingFrame.byteRange))
+        } else {
+            lastPublishedSelectionID = nil
+            onSelectionChange?(nil)
+        }
     }
 
     private func hitTestByte(at point: NSPoint) -> (byteIndex: Int, section: Section)? {
