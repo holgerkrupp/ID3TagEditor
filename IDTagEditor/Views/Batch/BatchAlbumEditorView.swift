@@ -41,7 +41,7 @@ struct BatchAlbumEditorView: View {
     private var header: some View {
         SectionPanel("Batch Album Tags", subtitle: batch.subtitle) {
             HStack(alignment: .center, spacing: 16) {
-                ArtworkView(imageData: batch.artwork?.data, size: 96)
+                ArtworkView(imageData: batch.artwork?.data, size: 96, accessibilityLabel: "Batch cover artwork")
                     .dropDestination(for: URL.self) { urls, _ in
                         guard let url = urls.first else {
                             return false
@@ -49,7 +49,7 @@ struct BatchAlbumEditorView: View {
                         batch.setArtwork(from: url)
                         return true
                     }
-                    .help("Drop cover artwork here")
+                    .controlHelp("Drop cover artwork here.")
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text(batch.sourceName)
@@ -82,6 +82,7 @@ struct BatchAlbumEditorView: View {
                 }
                 .disabled(!batch.canUndo)
                 .keyboardShortcut("z", modifiers: .command)
+                .controlHelp("Undo the last batch edit.")
 
                 Button {
                     batch.redo()
@@ -90,6 +91,7 @@ struct BatchAlbumEditorView: View {
                 }
                 .disabled(!batch.canRedo)
                 .keyboardShortcut("Z", modifiers: [.command, .shift])
+                .controlHelp("Redo the last undone batch edit.")
 
                 Button {
                     batch.identifyAll()
@@ -97,6 +99,7 @@ struct BatchAlbumEditorView: View {
                     Label(batch.isIdentifying ? "Identifying" : "Identify Album", systemImage: "waveform.and.magnifyingglass")
                 }
                 .disabled(batch.isIdentifying || batch.tracks.isEmpty)
+                .controlHelp("Identify the selected files as an album with MusicBrainz.")
 
                 Button {
                     batch.applyToAll()
@@ -104,6 +107,15 @@ struct BatchAlbumEditorView: View {
                     Label("Apply Checked Fields", systemImage: "checkmark.circle")
                 }
                 .disabled(batch.tracks.isEmpty)
+                .controlHelp("Apply only the checked shared fields to the selected tracks.")
+
+                Button(role: .destructive) {
+                    batch.discardEdits()
+                } label: {
+                    Label("Dismiss Edits", systemImage: "xmark.circle")
+                }
+                .disabled(!batch.canDiscardEdits)
+                .controlHelp("Discard unsaved manual and identified batch edits.")
 
                 Button {
                     saveAll()
@@ -112,6 +124,7 @@ struct BatchAlbumEditorView: View {
                 }
                 .disabled(batch.isSaving || !batch.hasDirtyTracks)
                 .keyboardShortcut("s", modifiers: .command)
+                .controlHelp("Save all changed tracks in the batch.")
             }
         }
         .confirmationDialog(
@@ -129,7 +142,7 @@ struct BatchAlbumEditorView: View {
     private var artworkTools: some View {
         SectionPanel("Artwork Tools", subtitle: "Drop, replace, remove, export, and adjust before embedding") {
             HStack(alignment: .top, spacing: 16) {
-                ArtworkView(imageData: batch.artwork?.data, size: 104)
+                ArtworkView(imageData: batch.artwork?.data, size: 104, accessibilityLabel: "Batch artwork preview")
                     .dropDestination(for: URL.self) { urls, _ in
                         guard let url = urls.first else {
                             return false
@@ -137,7 +150,7 @@ struct BatchAlbumEditorView: View {
                         batch.setArtwork(from: url)
                         return true
                     }
-                    .help("Drop artwork here to replace batch artwork")
+                    .controlHelp("Drop artwork here to replace batch artwork.")
 
                 VStack(alignment: .leading, spacing: 12) {
                     ArtworkAdjustmentControls(options: batch.artworkOptions)
@@ -148,18 +161,21 @@ struct BatchAlbumEditorView: View {
                         } label: {
                             Label("Replace Artwork", systemImage: "photo.badge.plus")
                         }
+                        .controlHelp("Choose replacement artwork for the batch.")
 
                         Button(role: .destructive) {
                             batch.removeArtwork()
                         } label: {
                             Label("Remove Artwork", systemImage: "trash")
                         }
+                        .controlHelp("Mark artwork for removal when checked fields are applied.")
 
                         Button {
                             chooseArtworkExportFolder()
                         } label: {
                             Label("Export Embedded Artwork", systemImage: "square.and.arrow.up")
                         }
+                        .controlHelp("Export embedded artwork from the batch files.")
                     }
 
                     Text(batch.shouldRemoveArtwork ? "Artwork is marked for removal when checked fields are applied." : "Replacement artwork uses these adjustment settings before it is embedded.")
@@ -199,6 +215,7 @@ struct BatchAlbumEditorView: View {
                             Label("Apply Selected Candidate", systemImage: "checkmark.circle")
                         }
                         .disabled(batch.selectedSuggestion == nil)
+                        .controlHelp("Apply the selected MusicBrainz candidate to the batch fields.")
                     }
                 }
             }
@@ -259,11 +276,13 @@ struct BatchAlbumEditorView: View {
                         Button("Preview") {
                             patternPreview = batch.renamePreview()
                         }
+                        .controlHelp("Preview file renames using the rename pattern.")
                         Button("Apply") {
                             batch.applyRenamePreview()
                             patternPreview = []
                         }
                         .disabled(patternPreview.isEmpty)
+                        .controlHelp("Apply the previewed file renames.")
                     }
 
                     GridRow {
@@ -275,10 +294,12 @@ struct BatchAlbumEditorView: View {
                         Button("Preview") {
                             patternPreview = batch.filenameExtractPreview()
                         }
+                        .controlHelp("Preview tag extraction from filenames.")
                         Button("Apply") {
                             batch.applyFilenameExtraction()
                             patternPreview = []
                         }
+                        .controlHelp("Apply extracted filename tags.")
                     }
 
                     GridRow {
@@ -300,10 +321,12 @@ struct BatchAlbumEditorView: View {
                         Button("Preview") {
                             patternPreview = batch.composePreview()
                         }
+                        .controlHelp("Preview composed tag values.")
                         Button("Apply") {
                             batch.applyComposeTags()
                             patternPreview = []
                         }
+                        .controlHelp("Apply composed tag values.")
                     }
                 }
 
@@ -343,11 +366,13 @@ struct BatchAlbumEditorView: View {
                         Button("Preview") {
                             findReplacePreview = batch.findReplacePreview()
                         }
+                        .controlHelp("Preview find and replace changes.")
                         Button("Apply") {
                             batch.applyFindReplace()
                             findReplacePreview = []
                         }
                         .disabled(findReplacePreview.isEmpty)
+                        .controlHelp("Apply the previewed find and replace changes.")
                     }
                 }
 
@@ -382,24 +407,28 @@ struct BatchAlbumEditorView: View {
                 } label: {
                     Label("Export CSV", systemImage: "tablecells")
                 }
+                .controlHelp("Export batch tags to a CSV file.")
 
                 Button {
                     importCSV()
                 } label: {
                     Label("Import CSV", systemImage: "square.and.arrow.down")
                 }
+                .controlHelp("Import batch tags from a CSV file.")
 
                 Button {
                     exportM3U()
                 } label: {
                     Label("Export M3U", systemImage: "music.note.list")
                 }
+                .controlHelp("Export the batch as an M3U playlist.")
 
                 Button {
                     importM3U()
                 } label: {
                     Label("Import M3U", systemImage: "text.badge.plus")
                 }
+                .controlHelp("Import track ordering from an M3U playlist.")
 
                 Divider()
                     .frame(height: 24)
@@ -409,6 +438,7 @@ struct BatchAlbumEditorView: View {
                 } label: {
                     Label("Copy Tags", systemImage: "doc.on.doc")
                 }
+                .controlHelp("Copy tags from the first selected track.")
 
                 Button {
                     batch.pasteCopiedTags()
@@ -416,6 +446,7 @@ struct BatchAlbumEditorView: View {
                     Label("Paste Tags", systemImage: "doc.on.clipboard")
                 }
                 .disabled(batch.copyTagsBuffer.isEmpty)
+                .controlHelp("Paste copied tags into the selected tracks.")
             }
         }
     }
@@ -447,11 +478,13 @@ struct BatchAlbumEditorView: View {
                     } label: {
                         Label("Tap BPM", systemImage: "metronome")
                     }
+                    .controlHelp("Tap repeatedly to estimate beats per minute.")
                     Button {
                         batch.applySpecializedTags()
                     } label: {
                         Label("Apply Profile", systemImage: "checkmark.circle")
                     }
+                    .controlHelp("Apply the specialized podcast or audiobook fields.")
                 }
 
                 GridRow {
@@ -484,18 +517,21 @@ struct BatchAlbumEditorView: View {
                     } label: {
                         Label("Move To Pattern", systemImage: "folder")
                     }
+                    .controlHelp("Move selected files into folders generated from the pattern.")
 
                     Button {
                         moveOrCopy(copy: true)
                     } label: {
                         Label("Copy To Pattern", systemImage: "folder.badge.plus")
                     }
+                    .controlHelp("Copy selected files into folders generated from the pattern.")
 
                     Button {
                         batch.revealTargetsInFinder()
                     } label: {
                         Label("Reveal in Finder", systemImage: "finder")
                     }
+                    .controlHelp("Reveal selected files in Finder.")
                 }
 
                 HStack(spacing: 10) {
@@ -504,18 +540,21 @@ struct BatchAlbumEditorView: View {
                     } label: {
                         Label("Remove From Batch", systemImage: "minus.circle")
                     }
+                    .controlHelp("Remove selected files from this batch without deleting them.")
 
                     Button(role: .destructive) {
                         showingDeleteConfirmation = true
                     } label: {
                         Label("Move to Trash", systemImage: "trash")
                     }
+                    .controlHelp("Move selected files to the Trash after confirmation.")
 
                     Button {
                         refreshMusicApp()
                     } label: {
                         Label("Refresh Music.app", systemImage: "music.note")
                     }
+                    .controlHelp("Ask Music.app to refresh its library view.")
                 }
             }
         }
@@ -528,10 +567,12 @@ struct BatchAlbumEditorView: View {
                     Button("Select All") {
                         batch.selectAllTracks()
                     }
+                    .controlHelp("Select all tracks in the batch.")
                     Button("Clear Selection") {
                         batch.clearTrackSelection()
                     }
                     .disabled(batch.selectedTrackIDs.isEmpty)
+                    .controlHelp("Clear the current track selection.")
 
                     Spacer()
 
@@ -697,7 +738,7 @@ private struct MusicBrainzCandidateRow: View {
     var body: some View {
         Button(action: select) {
             HStack(spacing: 12) {
-                ArtworkView(imageData: suggestion.artwork?.data, size: 52)
+                ArtworkView(imageData: suggestion.artwork?.data, size: 52, accessibilityLabel: "Artwork for \(suggestion.title)")
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(suggestion.title)
@@ -737,6 +778,9 @@ private struct MusicBrainzCandidateRow: View {
             }
         }
         .buttonStyle(.plain)
+        .controlHelp("Select \(suggestion.title) as the MusicBrainz match.")
+        .accessibilityLabel("MusicBrainz candidate \(suggestion.title)")
+        .accessibilityValue("\(metadata), \(detailMetadata), \(suggestion.trackCount) tracks, score \(suggestion.score)")
     }
 
     private var metadata: String {
@@ -789,6 +833,8 @@ private struct BatchAlbumTrackRow: View {
                 ))
                 .labelsHidden()
                 .toggleStyle(.checkbox)
+                .accessibilityLabel("Select \(track.fileURL.lastPathComponent)")
+                .controlHelp("Include this track in batch operations.")
 
                 EditableCommitTextField(title: "Track", value: track.trackNumber) { value in
                     batch.updateTrackNumber(track, value: value)
@@ -820,6 +866,9 @@ private struct BatchAlbumTrackRow: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(batch.selectedTrackIDs.contains(track.id) ? Color.accentColor.opacity(0.08) : Color.clear)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(track.title.isEmpty ? track.fileURL.lastPathComponent : track.title)
+        .accessibilityValue("\(track.trackNumber), \(track.identificationStatus), \(track.saveStatus)")
     }
 }
 

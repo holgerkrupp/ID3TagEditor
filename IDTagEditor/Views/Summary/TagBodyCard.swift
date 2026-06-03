@@ -25,7 +25,7 @@ struct TagBodyCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 if frame.imageData != nil {
-                    ArtworkView(imageData: frame.imageData, size: 92)
+                    ArtworkView(imageData: frame.imageData, size: 92, accessibilityLabel: "\(frame.tagName) artwork")
                         .dropDestination(for: URL.self) { urls, _ in
                             guard let url = urls.first else {
                                 return false
@@ -33,6 +33,7 @@ struct TagBodyCard: View {
                             replaceArtwork(from: url)
                             return true
                         }
+                        .controlHelp(isEditing ? "Drop artwork here to replace this picture frame." : "\(frame.tagName) artwork.")
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -59,7 +60,7 @@ struct TagBodyCard: View {
 
             if isEditing, editableKind != .none {
                 editableControl
-            } else if isEditing, frame.frameID == "APIC" {
+            } else if isEditing, isArtworkFrame {
                 pictureArtworkTools
             } else if !frame.summary.isEmpty {
                 Text(frame.summary)
@@ -106,6 +107,12 @@ struct TagBodyCard: View {
         .onTapGesture {
             selection = TagSelection(frameSelectionID: frame.selectionID, byteRange: frame.byteRange)
         }
+        .selectableElement(
+            label: "\(frame.tagName), \(frame.frameID)",
+            value: frame.summary.isEmpty ? "\(frame.bodySize) bytes" : "\(frame.summary), \(frame.bodySize) bytes"
+        ) {
+            selection = TagSelection(frameSelectionID: frame.selectionID, byteRange: frame.byteRange)
+        }
         .fileImporter(
             isPresented: $isArtworkImporterPresented,
             allowedContentTypes: [.image],
@@ -149,12 +156,14 @@ struct TagBodyCard: View {
                 } label: {
                     Label("Replace", systemImage: "photo.badge.plus")
                 }
+                .controlHelp("Choose replacement artwork from disk.")
 
                 Button(role: .destructive) {
                     editor?.removeArtwork()
                 } label: {
                     Label("Remove", systemImage: "trash")
                 }
+                .controlHelp("Remove embedded artwork from this picture frame.")
 
                 Button {
                     exportArtwork()
@@ -162,12 +171,13 @@ struct TagBodyCard: View {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
                 .disabled(frame.imageData == nil)
+                .controlHelp("Export this picture frame to an image file.")
             }
         }
     }
 
     private func replaceArtwork(from url: URL) {
-        guard isEditing, frame.frameID == "APIC" else {
+        guard isEditing, isArtworkFrame else {
             return
         }
 
@@ -207,6 +217,9 @@ struct TagBodyCard: View {
     }
 
     private var editableKind: EditableKind {
+        if editor?.mediaKind == .mp4, frame.imageData == nil {
+            return .text
+        }
         if frame.frameID.hasPrefix("T") {
             return .text
         }
@@ -214,6 +227,10 @@ struct TagBodyCard: View {
             return .url
         }
         return .none
+    }
+
+    private var isArtworkFrame: Bool {
+        frame.frameID == "APIC" || frame.frameID == MP4MetadataKind.artwork.id
     }
 
     private enum EditableKind {

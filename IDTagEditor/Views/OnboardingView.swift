@@ -73,7 +73,7 @@ struct OnboardingView: View {
                 .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Welcome to IDTagEditor")
+                Text("Welcome to TagFrame")
                     .font(.largeTitle.weight(.semibold))
 
                 Text("Inspect, identify, edit, repair, and save ID3 metadata for individual MP3 files or full album batches.")

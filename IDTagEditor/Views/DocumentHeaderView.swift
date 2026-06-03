@@ -52,7 +52,11 @@ struct DocumentHeaderView: View {
             Spacer(minLength: 20)
 
             VStack(alignment: .trailing, spacing: 10) {
-                ArtworkView(imageData: document.editorSession?.embeddedArtwork?.data ?? document.topLevelTagFrames.first(where: { $0.frameID == "APIC" })?.imageData, size: 104)
+                ArtworkView(
+                    imageData: document.editorSession?.embeddedArtwork?.data ?? document.topLevelTagFrames.first(where: { $0.frameID == "APIC" })?.imageData,
+                    size: 104,
+                    accessibilityLabel: "Embedded artwork for \(document.displayName)"
+                )
                     .dropDestination(for: URL.self) { urls, _ in
                         guard let url = urls.first else {
                             return false
@@ -60,7 +64,7 @@ struct DocumentHeaderView: View {
                         replaceArtwork(from: url)
                         return true
                     }
-                    .help(document.canEdit ? "Drop artwork here to replace embedded artwork" : "Artwork")
+                    .controlHelp(document.canEdit ? "Drop artwork here to replace embedded artwork." : "Embedded artwork.")
 
                 Text(document.header.versionString)
                     .font(.title3.weight(.semibold))
@@ -79,12 +83,14 @@ struct DocumentHeaderView: View {
                                 } label: {
                                     Label("Replace", systemImage: "photo.badge.plus")
                                 }
+                                .controlHelp("Choose replacement artwork from disk.")
 
                                 Button(role: .destructive) {
                                     document.editorSession?.removeArtwork()
                                 } label: {
                                     Label("Remove", systemImage: "trash")
                                 }
+                                .controlHelp("Remove embedded artwork from this file.")
 
                                 Button {
                                     exportArtwork()
@@ -92,16 +98,19 @@ struct DocumentHeaderView: View {
                                     Label("Export", systemImage: "square.and.arrow.up")
                                 }
                                 .disabled(document.editorSession?.embeddedArtwork == nil)
+                                .controlHelp("Export the embedded artwork to an image file.")
                             }
                         }
                     }
                     .font(.caption)
                     .frame(width: 430, alignment: .trailing)
+                    .accessibilityLabel("Artwork tools")
                 }
             }
         }
         .padding(22)
         .glassPanel(cornerRadius: 26)
+        .accessibilityElement(children: .contain)
         .fileImporter(
             isPresented: $isArtworkImporterPresented,
             allowedContentTypes: [.image],

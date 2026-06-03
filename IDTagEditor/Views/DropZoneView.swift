@@ -20,5 +20,8 @@ struct DropZoneView: View {
         .padding(.vertical, 28)
         .padding(.horizontal, 18)
         .glassPanel(cornerRadius: 24)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Drop MP3 files or URLs")
+        .accessibilityHint("Drop files here, or use Open or Paste from the toolbar.")
     }
 }

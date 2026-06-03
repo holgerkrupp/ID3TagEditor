@@ -82,6 +82,7 @@ final class BatchAlbumEditor {
     var statusMessage: String?
     var isIdentifying = false
     var isSaving = false
+    var hasStagedTagChanges = false
     private var musicBrainzCache: [String: [MusicBrainzAlbumSuggestion]] = [:]
     private var undoStack: [BatchAlbumSnapshot] = []
     private var redoStack: [BatchAlbumSnapshot] = []
@@ -101,6 +102,14 @@ final class BatchAlbumEditor {
 
     var hasDirtyTracks: Bool {
         tracks.contains { $0.editor.isDirty }
+    }
+
+    var hasUnsavedChanges: Bool {
+        hasDirtyTracks || hasStagedTagChanges
+    }
+
+    var canDiscardEdits: Bool {
+        hasUnsavedChanges
     }
 
     var targetTracks: [BatchAlbumTrack] {
@@ -222,6 +231,7 @@ final class BatchAlbumEditor {
         }
         pushUndo()
         apply(selectedSuggestion)
+        hasStagedTagChanges = true
         statusMessage = "Applied \(selectedSuggestion.title). Review the fields, then apply checked fields and save."
     }
 
@@ -265,6 +275,7 @@ final class BatchAlbumEditor {
                 removeArtwork: applyOptions.artwork && shouldRemoveArtwork
             )
         }
+        hasStagedTagChanges = false
         statusMessage = "Applied album tags to \(tracks.count) file\(tracks.count == 1 ? "" : "s")."
     }
 
@@ -289,6 +300,7 @@ final class BatchAlbumEditor {
             return
         }
         mixedSharedFields.remove(field)
+        hasStagedTagChanges = true
     }
 
     func updateTrackTitle(_ track: BatchAlbumTrack, value: String) {
@@ -297,6 +309,7 @@ final class BatchAlbumEditor {
         }
         pushUndo()
         track.title = value
+        hasStagedTagChanges = true
     }
 
     func updateTrackNumber(_ track: BatchAlbumTrack, value: String) {
@@ -305,6 +318,7 @@ final class BatchAlbumEditor {
         }
         pushUndo()
         track.trackNumber = value
+        hasStagedTagChanges = true
     }
 
     func setTrackSelected(_ track: BatchAlbumTrack, isSelected: Bool) {
@@ -336,6 +350,7 @@ final class BatchAlbumEditor {
             artwork = try ArtworkProcessor.loadAdjustedArtwork(from: url, options: artworkOptions)
             shouldRemoveArtwork = false
             applyOptions.artwork = true
+            hasStagedTagChanges = true
             statusMessage = "Loaded adjusted artwork from \(url.lastPathComponent)."
         } catch {
             statusMessage = error.localizedDescription
@@ -347,6 +362,7 @@ final class BatchAlbumEditor {
         artwork = nil
         shouldRemoveArtwork = true
         applyOptions.artwork = true
+        hasStagedTagChanges = true
         statusMessage = "Artwork will be removed when checked fields are applied."
     }
 
@@ -402,6 +418,18 @@ final class BatchAlbumEditor {
         statusMessage = "Redid batch edit."
     }
 
+    func discardEdits() {
+        for track in tracks {
+            track.editor.discardEdits()
+            track.saveStatus = ""
+        }
+        initializeSharedFields()
+        hasStagedTagChanges = false
+        undoStack.removeAll()
+        redoStack.removeAll()
+        statusMessage = "Discarded unsaved batch edits."
+    }
+
     func saveAll() {
         guard !isSaving else {
             return
@@ -424,6 +452,9 @@ final class BatchAlbumEditor {
         }
 
         statusMessage = failures.isEmpty ? "Saved all files." : failures.joined(separator: "\n")
+        if failures.isEmpty {
+            hasStagedTagChanges = false
+        }
     }
 
     func renamePreview() -> [BatchPreviewRow] {
@@ -599,10 +630,11 @@ final class BatchAlbumEditor {
     }
 
     func copyTagsFromFirstTarget() {
-        guard let track = targetTracks.first else {
+        guard let track = targetTracks.first,
+              let frames = track.editor.document?.frames else {
             return
         }
-        copyTagsBuffer = track.editor.document.frames
+        copyTagsBuffer = frames
         statusMessage = "Copied tags from \(track.fileURL.lastPathComponent)."
     }
 
@@ -964,6 +996,7 @@ final class BatchAlbumEditor {
             tracks: tracks.map(BatchAlbumTrackSnapshot.init(track:)),
             suggestions: suggestions,
             selectedSuggestionID: selectedSuggestionID,
+            hasStagedTagChanges: hasStagedTagChanges,
             statusMessage: statusMessage
         )
     }
@@ -981,6 +1014,7 @@ final class BatchAlbumEditor {
         applyOptions.restore(snapshot.applyOptions)
         suggestions = snapshot.suggestions
         selectedSuggestionID = snapshot.selectedSuggestionID
+        hasStagedTagChanges = snapshot.hasStagedTagChanges
         statusMessage = snapshot.statusMessage
 
         for trackSnapshot in snapshot.tracks {
@@ -1153,6 +1187,7 @@ struct BatchAlbumSnapshot {
     var tracks: [BatchAlbumTrackSnapshot]
     var suggestions: [MusicBrainzAlbumSuggestion]
     var selectedSuggestionID: MusicBrainzAlbumSuggestion.ID?
+    var hasStagedTagChanges: Bool
     var statusMessage: String?
 }
 

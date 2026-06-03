@@ -44,7 +44,24 @@ struct ContentView: View {
             await model.saveUnlockStore.configure()
         }
         .toolbar {
-            ToolbarItemGroup {
+            ToolbarItemGroup(placement: .navigation) {
+                Button {
+                    model.openFileImporter()
+                } label: {
+                    Label("Open", systemImage: "folder")
+                }
+                .controlHelp("Open MP3 files, audio files, or folders.")
+
+                Button {
+                    model.loadFromPasteboard()
+                } label: {
+                    Label("Paste", systemImage: "doc.on.clipboard")
+                }
+                .keyboardShortcut("v", modifiers: .command)
+                .controlHelp("Load copied files, file URLs, or web URLs from the pasteboard.")
+            }
+
+            ToolbarItemGroup(placement: .principal) {
                 Picker("View", selection: $selectedView) {
                     ForEach(DetailMode.allCases) { mode in
                         Label(mode.title, systemImage: mode.systemImage)
@@ -53,6 +70,8 @@ struct ContentView: View {
                 }
                 .pickerStyle(.segmented)
                 .disabled(model.batchEditor != nil)
+                .controlHelp("Switch between summary, raw tag, and hex views.", hint: "Choose which inspector view is shown.")
+                .accessibilityLabel("Inspector view")
 
                 if model.batchEditor == nil, model.selectedDocuments.filter(\.canEdit).count > 1 {
                     Button {
@@ -60,20 +79,8 @@ struct ContentView: View {
                     } label: {
                         Label("Batch Edit", systemImage: "rectangle.stack")
                     }
+                    .controlHelp("Batch edit the selected editable files.")
                 }
-
-                Button {
-                    model.openFileImporter()
-                } label: {
-                    Label("Open", systemImage: "folder")
-                }
-
-                Button {
-                    model.loadFromPasteboard()
-                } label: {
-                    Label("Paste", systemImage: "doc.on.clipboard")
-                }
-                .keyboardShortcut("v", modifiers: .command)
 
                 if let document = model.selectedDocument, document.canEdit {
                     Button {
@@ -82,13 +89,27 @@ struct ContentView: View {
                         Label(model.isIdentifyingSelectedDocument ? "Identifying" : "Identify", systemImage: "waveform.and.magnifyingglass")
                     }
                     .disabled(model.isIdentifyingSelectedDocument)
+                    .controlHelp("Identify the selected file with Shazam metadata lookup.")
 
                     Button {
                         model.toggleEditing(for: document)
                     } label: {
                         Label(document.editorSession?.isEditing == true ? "Done" : "Edit", systemImage: document.editorSession?.isEditing == true ? "checkmark.circle" : "pencil")
                     }
+                    .controlHelp(document.editorSession?.isEditing == true ? "Finish editing this tag." : "Edit the selected tag fields.")
 
+                    Button(role: .destructive) {
+                        model.discardActiveEdits()
+                    } label: {
+                        Label("Dismiss Edits", systemImage: "xmark.circle")
+                    }
+                    .disabled(!model.canDiscardActiveEdits)
+                    .controlHelp("Discard unsaved manual and identified tag edits.")
+                }
+            }
+
+            ToolbarItemGroup(placement: .primaryAction) {
+                if let document = model.selectedDocument, document.canEdit {
                     Button {
                         model.saveActiveItem()
                     } label: {
@@ -96,6 +117,7 @@ struct ContentView: View {
                     }
                     .disabled(!model.canSaveActiveItem)
                     .keyboardShortcut("s", modifiers: .command)
+                    .controlHelp("Save changes to the active file or batch.")
 
                     Button {
                         model.saveSelectedDocumentAs()
@@ -103,10 +125,11 @@ struct ContentView: View {
                         Label("Save As", systemImage: "square.and.arrow.down.on.square")
                     }
                     .disabled(document.editorSession?.canSave != true)
+                    .controlHelp("Save a copy of the selected file with edited tags.")
                 }
             }
         }
-        .alert("IDTagEditor", isPresented: alertBinding) {
+        .alert("TagFrame", isPresented: alertBinding) {
             Button("OK", role: .cancel) {
                 model.alertMessage = nil
             }
@@ -127,6 +150,9 @@ struct ContentView: View {
             allowsMultipleSelection: true
         ) { result in
             model.handleImport(result)
+        }
+        .onOpenURL { url in
+            model.load(url)
         }
         .dropDestination(for: URL.self) { urls, _ in
             model.load(urls)
@@ -154,6 +180,7 @@ struct ContentView: View {
                     .padding(24)
             }
             .scrollContentBackground(.hidden)
+            .accessibilityLabel("Batch album editor")
         } else if let document = model.selectedDocument {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -163,14 +190,23 @@ struct ContentView: View {
                     case .summary:
                         TagSummaryView(document: document, selection: $tagSelection)
                     case .raw:
-                        TechnicalInspectorView(document: document, selection: $tagSelection)
+                        if document.supportsID3ByteInspection {
+                            TechnicalInspectorView(document: document, selection: $tagSelection)
+                        } else {
+                            ContentUnavailableView("Raw ID3 View Unavailable", systemImage: "tag", description: Text("This file uses MPEG-4 metadata, which is edited through macOS media metadata APIs."))
+                        }
                     case .hex:
-                        HexView(document: document, selection: $tagSelection)
+                        if document.supportsID3ByteInspection {
+                            HexView(document: document, selection: $tagSelection)
+                        } else {
+                            ContentUnavailableView("Hex View Unavailable", systemImage: "number", description: Text("MPEG-4/AAC metadata is not exposed as ID3 tag bytes."))
+                        }
                     }
                 }
                 .padding(24)
             }
             .scrollContentBackground(.hidden)
+            .accessibilityLabel("Tag inspector for \(document.displayName)")
         } else {
             ContentUnavailableView {
                 Label("No MP3 Loaded", systemImage: "music.note")

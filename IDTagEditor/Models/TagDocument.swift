@@ -1,5 +1,6 @@
 import Foundation
 import mp3ChapterReader
+import UniformTypeIdentifiers
 
 struct TagDocument: Identifiable {
     let id = UUID()
@@ -35,7 +36,11 @@ struct TagDocument: Identifiable {
     }
 
     var canEdit: Bool {
-        !isRemote && sourceURL != nil && !content.rawTagData.isEmpty && editorSession != nil
+        !isRemote && sourceURL != nil && editorSession != nil
+    }
+
+    var supportsID3ByteInspection: Bool {
+        editorSession?.mediaKind != .mp4
     }
 
     var presentedContent: TagContent {
@@ -46,7 +51,7 @@ struct TagDocument: Identifiable {
     static func load(from url: URL) async -> TagDocument {
         do {
             if url.isFileURL {
-                return try loadLocal(url)
+                return try await loadLocal(url)
             }
             return try await loadRemote(url)
         } catch {
@@ -70,12 +75,24 @@ struct TagDocument: Identifiable {
     }
 
     @MainActor
-    private static func loadLocal(_ url: URL) throws -> TagDocument {
+    private static func loadLocal(_ url: URL) async throws -> TagDocument {
         let didStartAccess = url.startAccessingSecurityScopedResource()
         defer {
             if didStartAccess {
                 url.stopAccessingSecurityScopedResource()
             }
+        }
+
+        if isMPEG4AudioOrVideo(url) {
+            let mp4Document = try await MP4MetadataDocument.load(from: url)
+            return TagDocument(
+                displayName: url.lastPathComponent,
+                sourceDescription: url.path(percentEncoded: false),
+                sourceURL: url,
+                isRemote: false,
+                content: mp4Document.content,
+                editorSession: EditorSession(sourceFileURL: url, mp4Document: mp4Document)
+            )
         }
 
         let data = try Data(contentsOf: url)
@@ -92,6 +109,15 @@ struct TagDocument: Identifiable {
             content: content,
             editorSession: EditorSession(sourceFileURL: url, mp3Data: data, reader: reader)
         )
+    }
+
+    private static func isMPEG4AudioOrVideo(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension) else {
+            return false
+        }
+        return type.conforms(to: .mpeg4Audio)
+            || type.conforms(to: .mpeg4Movie)
+            || ["m4a", "m4b", "mp4", "aac"].contains(url.pathExtension.lowercased())
     }
 
     @MainActor

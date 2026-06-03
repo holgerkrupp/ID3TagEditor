@@ -6,7 +6,7 @@ enum TagReadError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noID3Tag:
-            "No supported ID3v2 tag was found."
+            "No supported ID3v2 or MPEG-4/AAC metadata was found."
         }
     }
 }

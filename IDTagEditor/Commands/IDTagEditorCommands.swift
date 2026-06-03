@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct IDTagEditorCommands: Commands {
     @FocusedValue(\.tagViewerModel) private var model
@@ -6,6 +7,12 @@ struct IDTagEditorCommands: Commands {
     @FocusedValue(\.isOnboardingPresented) private var isOnboardingPresented
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About TagFrame") {
+                AboutWindowPresenter.shared.show()
+            }
+        }
+
         CommandGroup(after: .newItem) {
             Button("Open File or Folder...") {
                 model?.openFileImporter()
@@ -99,6 +106,11 @@ struct IDTagEditorCommands: Commands {
             }
             .disabled(model?.canRunBatchActions != true)
 
+            Button("Dismiss Edits") {
+                model?.discardActiveEdits()
+            }
+            .disabled(model?.canDiscardActiveEdits != true)
+
             Button("Save All Batch Changes") {
                 model?.saveBatchAlbum()
             }
@@ -110,19 +122,48 @@ struct IDTagEditorCommands: Commands {
                 Button("Recalculate Sizes") {
                     model?.recalculateSelectedTagSizes()
                 }
-                .disabled(model?.selectedDocument?.editorSession == nil)
+                .disabled(model?.selectedDocument?.supportsID3ByteInspection != true)
 
                 Button("Rebuild from Structured Tags") {
                     model?.rebuildSelectedTagFromStructuredTags()
                 }
-                .disabled(model?.selectedDocument?.editorSession == nil)
+                .disabled(model?.selectedDocument?.supportsID3ByteInspection != true)
 
                 Button("Discard Hex Edits") {
                     model?.discardSelectedHexEdits()
                 }
-                .disabled(model?.selectedDocument?.editorSession == nil)
+                .disabled(model?.selectedDocument?.supportsID3ByteInspection != true)
             }
         }
+    }
+}
+
+private final class AboutWindowPresenter {
+    static let shared = AboutWindowPresenter()
+
+    private var window: NSWindow?
+
+    func show() {
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+            return
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 340),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "About TagFrame"
+        window.contentViewController = NSHostingController(rootView: AboutView())
+        window.center()
+        window.isReleasedWhenClosed = false
+
+        self.window = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate()
     }
 }
 

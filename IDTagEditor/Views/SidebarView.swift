@@ -21,9 +21,14 @@ struct SidebarView: View {
                     }
                     .tag(document.id)
                     .padding(.vertical, 5)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(document.displayName)
+                    .accessibilityValue(document.sourceDescription)
+                    .accessibilityHint("Selects this file for inspection.")
                 }
             }
             .scrollContentBackground(.hidden)
+            .accessibilityLabel("Loaded files")
         }
         .padding(18)
     }

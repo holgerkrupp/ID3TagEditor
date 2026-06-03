@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 #if os(macOS)
 import AppKit
@@ -56,7 +57,7 @@ final class TagViewerModel {
 
     var hasUnsavedChanges: Bool {
         if let batchEditor {
-            return batchEditor.hasDirtyTracks
+            return batchEditor.hasUnsavedChanges
         }
         return documents.contains { $0.editorSession?.isDirty == true }
     }
@@ -65,8 +66,15 @@ final class TagViewerModel {
         selectedDocument?.editorSession?.canSave == true
     }
 
+    var canDiscardActiveEdits: Bool {
+        if let batchEditor {
+            return batchEditor.canDiscardEdits
+        }
+        return selectedDocument?.editorSession?.isDirty == true
+    }
+
     var canIdentifySelectedDocument: Bool {
-        selectedDocument?.canEdit == true && !isIdentifyingSelectedDocument
+        selectedDocument?.canEdit == true && selectedDocument?.editorSession?.mediaKind == .mp3 && !isIdentifyingSelectedDocument
     }
 
     var canToggleSelectedDocumentEditing: Bool {
@@ -168,6 +176,14 @@ final class TagViewerModel {
         selectedDocument?.editorSession?.discardHexEdits()
     }
 
+    func discardActiveEdits() {
+        if let batchEditor {
+            batchEditor.discardEdits()
+        } else {
+            selectedDocument?.editorSession?.discardEdits()
+        }
+    }
+
     func toggleEditing(for document: TagDocument) {
         guard let index = documents.firstIndex(where: { $0.id == document.id }),
               let editor = documents[index].editorSession else {
@@ -207,7 +223,7 @@ final class TagViewerModel {
         }
 
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.mp3]
+        panel.allowedContentTypes = editor.mediaKind == .mp4 ? [.mpeg4Audio, .mpeg4Movie] : [.mp3]
         panel.nameFieldStringValue = editor.sourceFileURL.lastPathComponent
         panel.canCreateDirectories = true
 

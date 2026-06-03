@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import mp3ChapterReader
 
 struct FrameReport: Identifiable {
@@ -55,6 +56,26 @@ struct FrameReport: Identifiable {
         children = parsedChildren
         chapter = parsedChapter
         summary = FrameReport.summary(for: frame, details: parsedDetails, chapter: parsedChapter)
+    }
+
+    init(mp4Field field: MP4MetadataField) {
+        frameID = field.id
+        originalID = field.sourceIdentifier?.rawValue ?? field.kind.preferredIdentifier.rawValue
+        tagName = field.displayName
+        headerSize = 0
+        bodySize = field.artwork?.data.count ?? field.value.utf8.count
+        totalSize = bodySize
+        summary = field.summary
+        flagsSummary = "MPEG-4 metadata"
+        details = [
+            FrameDetail("Identifier", originalID),
+            FrameDetail("Value", field.summary)
+        ].filter { !$0.value.isEmpty }
+        children = []
+        imageData = field.artwork?.data
+        chapter = nil
+        selectionID = "mp4/\(field.id)"
+        byteRange = nil
     }
 
     private static func summary(for frame: Frame, details: [FrameDetail], chapter: ChapterReport?) -> String {

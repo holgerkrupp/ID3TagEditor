@@ -7,6 +7,7 @@ import AppKit
 struct ArtworkView: View {
     let imageData: Data?
     var size: CGFloat = 72
+    var accessibilityLabel = "Artwork"
 
     var body: some View {
         Group {
@@ -28,5 +29,8 @@ struct ArtworkView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(.separator.opacity(0.45), lineWidth: 1)
         }
+        .accessibilityElement()
+        .accessibilityLabel(Text(accessibilityLabel))
+        .accessibilityValue(Text(imageData == nil ? "No image" : "Image present"))
     }
 }

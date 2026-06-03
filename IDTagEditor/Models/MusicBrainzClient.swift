@@ -212,14 +212,14 @@ enum MusicBrainzClient {
 
     nonisolated private static func request(for url: URL) -> URLRequest {
         var request = URLRequest(url: url)
-        request.setValue("IDTagEditor/1.0 ( https://github.com/holgerkrupp/IDTagEditor )", forHTTPHeaderField: "User-Agent")
+        request.setValue("TagFrame/1.0 ( https://github.com/holgerkrupp/IDTagEditor )", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         return request
     }
 
     nonisolated private static func artworkRequest(for url: URL) -> URLRequest {
         var request = URLRequest(url: url)
-        request.setValue("IDTagEditor/1.0 ( https://github.com/holgerkrupp/IDTagEditor )", forHTTPHeaderField: "User-Agent")
+        request.setValue("TagFrame/1.0 ( https://github.com/holgerkrupp/IDTagEditor )", forHTTPHeaderField: "User-Agent")
         request.setValue("image/*", forHTTPHeaderField: "Accept")
         return request
     }

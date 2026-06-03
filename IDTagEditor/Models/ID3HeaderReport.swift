@@ -21,7 +21,10 @@ struct ID3HeaderReport {
     var rawHeaderHex: String
 
     var versionString: String {
-        version > 0 ? "ID3v2.\(version).\(revision)" : "Unknown"
+        if identifier != "ID3" {
+            return identifier
+        }
+        return version > 0 ? "ID3v2.\(version).\(revision)" : "Unknown"
     }
 
     var flagsByteHex: String {
@@ -104,6 +107,28 @@ struct ID3HeaderReport {
             totalTagSize: 0,
             audioStartOffset: 0,
             fileSize: 0,
+            rawHeaderHex: ""
+        )
+    }
+
+    static func mediaFile(kind: String, fileSize: Int, metadataCount: Int) -> ID3HeaderReport {
+        ID3HeaderReport(
+            identifier: kind,
+            version: 0,
+            revision: 0,
+            flagsByte: 0,
+            hasUnsynchronization: false,
+            hasExtendedHeader: false,
+            isExperimental: false,
+            hasFooter: false,
+            isCompressedTag: false,
+            headerSize: 0,
+            tagBodySize: metadataCount,
+            extendedHeaderSize: 0,
+            footerSize: 0,
+            totalTagSize: 0,
+            audioStartOffset: 0,
+            fileSize: fileSize,
             rawHeaderHex: ""
         )
     }

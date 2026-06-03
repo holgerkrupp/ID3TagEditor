@@ -6,10 +6,16 @@ import mp3ChapterReader
 @Observable
 @MainActor
 final class EditorSession {
+    enum MediaKind {
+        case mp3
+        case mp4
+    }
+
     enum SaveError: LocalizedError {
         case remoteDocument
         case invalidTag
         case missingReader
+        case unsupportedEdit
 
         var errorDescription: String? {
             switch self {
@@ -19,15 +25,20 @@ final class EditorSession {
                 "The edited ID3 tag has structural errors. Fix or discard the hex edits before saving."
             case .missingReader:
                 "The edited bytes could not be parsed as an ID3 tag."
+            case .unsupportedEdit:
+                "This edit is not supported for this file type."
             }
         }
     }
 
+    var mediaKind: MediaKind
     var sourceFileURL: URL
-    var document: ID3TagDocument
+    var document: ID3TagDocument?
+    var mp4Document: MP4MetadataDocument?
     var content: TagContent
     var currentTagData: Data
     var lastValidTagData: Data
+    private var savedTagData: Data
     var diagnostics: [ID3ValidationDiagnostic]
     var isEditing = false
     var isDirty = false
@@ -35,7 +46,7 @@ final class EditorSession {
     private var didStartSecurityScopedAccess = false
 
     var canSave: Bool {
-        isEditing && !validation.hasFatalErrors
+        isEditing && (mediaKind == .mp4 || !validation.hasFatalErrors)
     }
 
     var validation: ID3ValidationResult {
@@ -43,6 +54,7 @@ final class EditorSession {
     }
 
     init(sourceFileURL: URL, mp3Data: Data, reader: mp3ChapterReader) {
+        mediaKind = .mp3
         self.sourceFileURL = sourceFileURL
         didStartSecurityScopedAccess = sourceFileURL.startAccessingSecurityScopedResource()
         document = ID3TagDocument(data: mp3Data)
@@ -50,7 +62,21 @@ final class EditorSession {
         let tagData = TagContent.tagData(from: mp3Data, reader: reader)
         currentTagData = tagData
         lastValidTagData = tagData
+        savedTagData = tagData
         diagnostics = ID3TagValidator.validate(tagData: tagData).diagnostics
+    }
+
+    init(sourceFileURL: URL, mp4Document: MP4MetadataDocument) {
+        mediaKind = .mp4
+        self.sourceFileURL = sourceFileURL
+        didStartSecurityScopedAccess = sourceFileURL.startAccessingSecurityScopedResource()
+        document = nil
+        self.mp4Document = mp4Document
+        content = mp4Document.content
+        currentTagData = Data()
+        lastValidTagData = Data()
+        savedTagData = Data()
+        diagnostics = []
     }
 
     func enableEditing() {
@@ -61,7 +87,7 @@ final class EditorSession {
     func cancelEditing() {
         isEditing = false
         statusMessage = nil
-        discardHexEdits()
+        discardEdits()
         isDirty = false
     }
 
@@ -71,6 +97,14 @@ final class EditorSession {
     }
 
     func textValue(for id: String) -> String? {
+        if mediaKind == .mp4 {
+            return mp4Document?.textValue(for: id)
+        }
+
+        guard let document else {
+            return nil
+        }
+
         for frame in document.frames {
             guard case .text(let frameID, let values) = frame, frameID == id else {
                 continue
@@ -81,6 +115,10 @@ final class EditorSession {
     }
 
     func urlValue(for id: String) -> String? {
+        guard let document else {
+            return nil
+        }
+
         for frame in document.frames {
             guard case .url(let frameID, let url, _) = frame, frameID == id else {
                 continue
@@ -91,7 +129,16 @@ final class EditorSession {
     }
 
     func removeTextFrame(_ id: String) {
+        guard mediaKind == .mp3 else {
+            mp4Document?.setTextValue(id, value: "")
+            commitStructuredEdit()
+            return
+        }
+        guard var document else {
+            return
+        }
         document.removeTextFrame(id)
+        self.document = document
         commitStructuredEdit()
     }
 
@@ -101,24 +148,39 @@ final class EditorSession {
     }
 
     func replaceAllFrames(_ frames: [ID3MutableFrame]) {
+        guard mediaKind == .mp3 else {
+            statusMessage = SaveError.unsupportedEdit.localizedDescription
+            return
+        }
         isEditing = true
-        document.frames = frames
+        document?.frames = frames
         commitStructuredEdit()
         statusMessage = "Replaced all tag frames. Save to write changes to disk."
     }
 
     func removeURLFrame(_ id: String, description: String? = nil) {
-        document.removeURLFrame(id, description: description)
+        guard mediaKind == .mp3 else {
+            return
+        }
+        document?.removeURLFrame(id, description: description)
         commitStructuredEdit()
     }
 
     func replaceChapters(_ chapters: [ID3Chapter]) {
-        document.replaceChapters(normalizedChapters(chapters))
+        guard mediaKind == .mp3 else {
+            statusMessage = SaveError.unsupportedEdit.localizedDescription
+            return
+        }
+        document?.replaceChapters(normalizedChapters(chapters))
         commitStructuredEdit()
     }
 
     func applyIdentifiedTags(_ match: ShazamID3Identifier.Match, includeLinks: Bool, artwork: ShazamID3Identifier.Artwork?) {
-        ShazamID3Identifier.apply(match, to: &document, includeLinks: includeLinks, artwork: artwork)
+        guard mediaKind == .mp3, document != nil else {
+            statusMessage = SaveError.unsupportedEdit.localizedDescription
+            return
+        }
+        ShazamID3Identifier.apply(match, to: &document!, includeLinks: includeLinks, artwork: artwork)
         isEditing = true
         commitStructuredEdit()
         statusMessage = match.dialogTitle.map { "Identified \($0). Review and save the suggested tags." }
@@ -160,7 +222,7 @@ final class EditorSession {
         }
 
         if removeArtwork {
-            document.removePictureFrames()
+            document?.removePictureFrames()
         } else if let artwork {
             setArtworkFrame(artwork)
         }
@@ -170,6 +232,14 @@ final class EditorSession {
     }
 
     var embeddedArtwork: ShazamID3Identifier.Artwork? {
+        if mediaKind == .mp4 {
+            return mp4Document?.artwork
+        }
+
+        guard let document else {
+            return nil
+        }
+
         for frame in document.frames {
             guard case .picture(let picture) = frame else {
                 continue
@@ -194,7 +264,11 @@ final class EditorSession {
 
     func removeArtwork() {
         isEditing = true
-        document.removePictureFrames()
+        if mediaKind == .mp4 {
+            mp4Document?.removeArtwork()
+        } else {
+            document?.removePictureFrames()
+        }
         commitStructuredEdit()
         statusMessage = "Removed artwork. Save to write changes to disk."
     }
@@ -290,6 +364,10 @@ final class EditorSession {
     }
 
     func applyHexEdit(_ tagData: Data) {
+        guard mediaKind == .mp3, let document else {
+            return
+        }
+
         currentTagData = tagData
         diagnostics = ID3TagValidator.validate(tagData: tagData).diagnostics
         isDirty = true
@@ -306,13 +384,17 @@ final class EditorSession {
             return
         }
 
-        document = ID3TagDocument(data: mp3Data)
+        self.document = ID3TagDocument(data: mp3Data)
         content = TagContent(data: mp3Data, reader: reader)
         lastValidTagData = tagData
         statusMessage = nil
     }
 
     func recalculateSizes() {
+        guard mediaKind == .mp3 else {
+            return
+        }
+
         var repaired = currentTagData
         guard repaired.count >= 10 else {
             return
@@ -328,13 +410,42 @@ final class EditorSession {
     }
 
     func rebuildFromStructuredTags() {
+        guard mediaKind == .mp3 else {
+            return
+        }
+
         commitStructuredEdit(markDirty: true)
         statusMessage = "Rebuilt tag from the last valid structured tags."
     }
 
     func discardHexEdits() {
+        guard mediaKind == .mp3 else {
+            return
+        }
+
         applyHexEdit(lastValidTagData)
         statusMessage = "Discarded invalid hex edits."
+    }
+
+    func discardEdits() {
+        if mediaKind == .mp4 {
+            if let mp4Document {
+                Task {
+                    do {
+                        self.mp4Document = try await MP4MetadataDocument.load(from: mp4Document.fileURL)
+                        content = self.mp4Document?.content ?? content
+                        isDirty = false
+                        statusMessage = "Discarded unsaved edits."
+                    } catch {
+                        statusMessage = error.localizedDescription
+                    }
+                }
+            }
+            return
+        }
+
+        restore(tagData: savedTagData, isDirty: false)
+        statusMessage = "Discarded unsaved edits."
     }
 
     func restore(tagData: Data, isDirty: Bool) {
@@ -348,6 +459,7 @@ final class EditorSession {
             throw SaveError.invalidTag
         }
         try write(to: sourceFileURL)
+        savedTagData = currentTagData
         isDirty = false
         statusMessage = "Saved \(sourceFileURL.lastPathComponent)."
     }
@@ -358,12 +470,17 @@ final class EditorSession {
         }
         try write(to: url)
         sourceFileURL = url
+        savedTagData = currentTagData
         isDirty = false
         statusMessage = "Saved \(url.lastPathComponent)."
     }
 
     func editableChapters() -> [ID3Chapter] {
-        document.frames.compactMap { frame in
+        guard let document else {
+            return []
+        }
+
+        return document.frames.compactMap { frame in
             if case .chapter(let chapter) = frame {
                 return chapter
             }
@@ -378,11 +495,37 @@ final class EditorSession {
                 url.stopAccessingSecurityScopedResource()
             }
         }
-        try document.write(to: url)
+        if mediaKind == .mp4 {
+            guard var mp4Document else {
+                throw SaveError.missingReader
+            }
+            mp4Document.fileURL = sourceFileURL
+            try mp4Document.write(to: url)
+            mp4Document.fileURL = url
+            self.mp4Document = mp4Document
+            content = mp4Document.content
+        } else {
+            guard let document else {
+                throw SaveError.missingReader
+            }
+            try document.write(to: url)
+        }
     }
 
     private func commitStructuredEdit(markDirty: Bool = true) {
+        if mediaKind == .mp4 {
+            if let mp4Document {
+                content = mp4Document.content
+            }
+            isDirty = isDirty || markDirty
+            statusMessage = nil
+            return
+        }
+
         do {
+            guard let document else {
+                throw SaveError.missingReader
+            }
             let mp3Data = try document.serializedMP3Data()
             guard let reader = mp3ChapterReader(fromData: mp3Data) else {
                 throw SaveError.missingReader
@@ -401,9 +544,19 @@ final class EditorSession {
     }
 
     private func setTextFrame(_ id: String, toCleaned value: String) {
+        if mediaKind == .mp4 {
+            mp4Document?.setTextValue(id, value: value)
+            return
+        }
+
+        guard var document else {
+            return
+        }
+
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             document.removeTextFrame(id)
+            self.document = document
         } else {
             replaceOrAppendFrame(.text(id: id, values: [trimmed]), matching: { frame in
                 if case .text(let frameID, _) = frame {
@@ -415,9 +568,14 @@ final class EditorSession {
     }
 
     private func setURLFrame(_ id: String, toCleaned value: String, description: String? = nil) {
+        guard mediaKind == .mp3, var document else {
+            return
+        }
+
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             document.removeURLFrame(id, description: description)
+            self.document = document
         } else {
             replaceOrAppendFrame(.url(id: id, url: trimmed, description: description), matching: { frame in
                 guard case .url(let frameID, _, let frameDescription) = frame, frameID == id else {
@@ -429,12 +587,22 @@ final class EditorSession {
     }
 
     private func setArtworkFrame(_ artwork: ShazamID3Identifier.Artwork) {
+        if mediaKind == .mp4 {
+            mp4Document?.setArtwork(artwork)
+            return
+        }
+
+        guard var document else {
+            return
+        }
+
         document.setPictureFrame(ID3Picture(
             mimeType: artwork.mimeType,
             type: .coverFront,
             description: "Album artwork",
             data: artwork.data
         ))
+        self.document = document
     }
 
     private func isPictureFrame(_ frame: ID3MutableFrame) -> Bool {
@@ -445,11 +613,16 @@ final class EditorSession {
     }
 
     private func replaceOrAppendFrame(_ replacement: ID3MutableFrame, matching predicate: (ID3MutableFrame) -> Bool) {
+        guard var document else {
+            return
+        }
+
         if let index = document.frames.firstIndex(where: predicate) {
             document.frames[index] = replacement
         } else {
             document.frames.append(replacement)
         }
+        self.document = document
     }
 
     private func normalizedChapters(_ chapters: [ID3Chapter]) -> [ID3Chapter] {
@@ -476,4 +649,5 @@ final class EditorSession {
             UInt8(value & 0x7F)
         ]
     }
+
 }

@@ -11,7 +11,7 @@ struct TagSummaryView: View {
                     Text("No top-level tag bodies were parsed.")
                         .foregroundStyle(.secondary)
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 12)], alignment: .leading, spacing: 12) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
                         ForEach(document.topLevelTagFrames) { frame in
                             TagBodyCard(frame: frame, editor: document.editorSession, selection: $selection)
                         }
@@ -20,7 +20,9 @@ struct TagSummaryView: View {
                 }
             }
 
-            ChapterTableView(document: document, selection: $selection)
+            if document.supportsID3ByteInspection {
+                ChapterTableView(document: document, selection: $selection)
+            }
         }
     }
 }

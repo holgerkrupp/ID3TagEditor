@@ -34,12 +34,15 @@ struct HexView: View {
                             Button("Recalculate Sizes") {
                                 editor?.recalculateSizes()
                             }
+                            .controlHelp("Recalculate ID3 header and frame sizes from the current bytes.")
                             Button("Rebuild From Structured Tags") {
                                 editor?.rebuildFromStructuredTags()
                             }
+                            .controlHelp("Rebuild the hex bytes from the editable structured tag fields.")
                             Button("Discard Hex Edits", role: .destructive) {
                                 editor?.discardHexEdits()
                             }
+                            .controlHelp("Discard manual hex edits and restore the previous tag data.")
                             Spacer()
                             Text("Type hex digits in the byte pane or printable characters in the ASCII pane.")
                                 .font(.caption)
@@ -63,6 +66,8 @@ struct HexView: View {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(.separator.opacity(0.45), lineWidth: 1)
                     }
+                    .accessibilityLabel("Hex editor")
+                    .accessibilityHint(editor?.isEditing == true ? "Select bytes with the mouse. Type hex digits in the byte pane or printable characters in the ASCII pane." : "Select bytes to inspect matching frames.")
                 }
             }
         }
@@ -87,6 +92,7 @@ private struct HexEditorRepresentable: NSViewRepresentable {
         editorView.externalSelection = selection
         editorView.onDataChange = onDataChange
         editorView.onSelectionChange = { selection = $0 }
+        editorView.setAccessibilityElement(true)
 
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -156,6 +162,7 @@ private final class HexEditorCanvas: NSView {
             }
             updateFrameSize()
             needsDisplay = true
+            postAccessibilityValueChanged()
         }
     }
 
@@ -184,6 +191,7 @@ private final class HexEditorCanvas: NSView {
             selectedByteRange = externalSelection?.byteRange
             activeSection = nil
             needsDisplay = true
+            postAccessibilityValueChanged()
         }
     }
 
@@ -260,6 +268,7 @@ private final class HexEditorCanvas: NSView {
             activeSection = nil
             onSelectionChange?(nil)
             needsDisplay = true
+            postAccessibilityValueChanged()
             return
         }
 
@@ -268,6 +277,7 @@ private final class HexEditorCanvas: NSView {
         selectedByteRange = hit.byteIndex..<(hit.byteIndex + 1)
         publishSelection(for: selectedByteRange)
         needsDisplay = true
+        postAccessibilityValueChanged()
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -283,6 +293,43 @@ private final class HexEditorCanvas: NSView {
         publishSelection(for: selectedByteRange)
         autoscroll(with: event)
         needsDisplay = true
+        postAccessibilityValueChanged()
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        .textArea
+    }
+
+    override func accessibilityLabel() -> String? {
+        "Hex editor"
+    }
+
+    override func accessibilityValue() -> Any? {
+        guard !data.isEmpty else {
+            return "No tag bytes"
+        }
+
+        if let selectedByteRange {
+            let lower = selectedByteRange.lowerBound
+            let upper = selectedByteRange.upperBound - 1
+            if lower == upper {
+                return "Byte \(lower + 1) of \(data.count), value \(String(format: "%02X", data[lower]))"
+            }
+            return "Bytes \(lower + 1) through \(upper + 1) of \(data.count), \(selectedByteRange.count) bytes selected"
+        }
+
+        return "\(data.count) bytes"
+    }
+
+    override func accessibilityHelp() -> String? {
+        if isEditable {
+            return "Select bytes with the mouse. Type hex digits in the byte pane, printable characters in the ASCII pane, or Command-C to copy selected bytes."
+        }
+        return "Select bytes to inspect the matching ID3 frame. Use Command-C to copy selected bytes."
+    }
+
+    private func postAccessibilityValueChanged() {
+        NSAccessibility.post(element: self, notification: .valueChanged)
     }
 
     override func mouseUp(with event: NSEvent) {

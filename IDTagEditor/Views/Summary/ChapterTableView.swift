@@ -48,10 +48,13 @@ struct ChapterTableView: View {
                         } label: {
                             Label(player.isPlaying ? "Pause" : "Play", systemImage: player.isPlaying ? "pause.fill" : "play.fill")
                         }
+                        .controlHelp(player.isPlaying ? "Pause chapter preview playback." : "Play chapter preview audio.")
 
                         Text("\(formatTime(player.currentTime)) / \(formatTime(player.duration))")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
+                            .accessibilityLabel("Playback position")
+                            .accessibilityValue("\(formatTime(player.currentTime)) of \(formatTime(player.duration))")
 
                         Spacer()
 
@@ -61,6 +64,7 @@ struct ChapterTableView: View {
                             } label: {
                                 Label("Import Chapters", systemImage: "square.and.arrow.down")
                             }
+                            .controlHelp("Import chapter markers from an XML, text, or data file.")
                         }
                     }
                 } else if editor?.isEditing == true {
@@ -69,6 +73,7 @@ struct ChapterTableView: View {
                     } label: {
                         Label("Import Chapters", systemImage: "square.and.arrow.down")
                     }
+                    .controlHelp("Import chapter markers from an XML, text, or data file.")
                 }
 
                 if chapters.isEmpty {
@@ -222,6 +227,13 @@ private struct ChapterGrid: View {
                 .onTapGesture {
                     selection = TagSelection(frameSelectionID: chapter.selectionID, byteRange: chapter.byteRange)
                 }
+                .selectableElement(
+                    label: "Chapter \(chapter.title)",
+                    value: "\(chapter.timeRange), duration \(chapter.duration)",
+                    hint: "Selects this chapter and highlights its bytes in the inspector."
+                ) {
+                    selection = TagSelection(frameSelectionID: chapter.selectionID, byteRange: chapter.byteRange)
+                }
 
                 if chapter.id != chapters.last?.id {
                     Divider()
@@ -350,6 +362,15 @@ private struct ChapterWaveformView: View {
         }
         .padding(10)
         .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Chapter waveform")
+        .accessibilityValue(waveformAccessibilityValue)
+        .accessibilityHint(isEditable ? "Drag chapter markers to adjust start times, or use the chapter table fields for precise editing." : "Click the waveform to seek playback.")
+    }
+
+    private var waveformAccessibilityValue: String {
+        let chapterSummary = chapters.isEmpty ? "No chapters" : "\(chapters.count) chapters"
+        return "\(chapterSummary), playback at \(formatTime(currentTime)) of \(formatTime(duration))"
     }
 
     private var waveformCanvas: some View {
@@ -467,7 +488,7 @@ private struct ChapterMarkerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(helpText)
+        .controlHelp(helpText)
         .popover(isPresented: $isDetailPresented, arrowEdge: .top) {
             ChapterMarkerDetail(chapter: chapter, color: detailColor)
         }
@@ -688,6 +709,13 @@ private struct ChapterContentCell: View {
                 .onTapGesture {
                     selection = TagSelection(frameSelectionID: frame.selectionID, byteRange: frame.byteRange)
                 }
+                .selectableElement(
+                    label: "\(frame.tagName) in \(chapter.title)",
+                    value: frame.summary,
+                    hint: "Selects this embedded chapter frame and highlights its bytes in the inspector."
+                ) {
+                    selection = TagSelection(frameSelectionID: frame.selectionID, byteRange: frame.byteRange)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -751,6 +779,8 @@ private struct ChapterArtworkCell: View {
                 }
                 .menuStyle(.button)
                 .buttonStyle(.borderless)
+                .controlHelp("Open artwork actions for \(chapter.title).")
+                .accessibilityLabel("Chapter artwork actions for \(chapter.title)")
                 .fileImporter(
                     isPresented: $isImporterPresented,
                     allowedContentTypes: [.image],

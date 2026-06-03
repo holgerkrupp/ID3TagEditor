@@ -69,7 +69,7 @@ final class WaveformPlaybackModel {
                     duration = preview.duration
                 }
 
-                let detailed = try await WaveformRenderer.render(url: url, bucketCount: 480)
+                let detailed = try await WaveformRenderer.render(url: url, bucketCount: 720)
                 await WaveformCache.shared.store(detailed, for: url)
                 guard self.url == url else {
                     return
@@ -306,16 +306,21 @@ enum WaveformRenderer {
             return []
         }
 
-        let sortedLevels = levels.filter { $0.isFinite && $0 > 0 }.sorted()
-        guard let referenceLevel = percentile(0.95, in: sortedLevels), referenceLevel > 0 else {
+        let sortedDecibels = levels
+            .filter { $0.isFinite && $0 > 0 }
+            .map { 20 * log10(max($0, 0.000_1)) }
+            .sorted()
+        guard let quietReference = percentile(0.12, in: sortedDecibels),
+              let loudReference = percentile(0.98, in: sortedDecibels),
+              loudReference > quietReference else {
             return Array(repeating: CGFloat(0.03), count: levels.count)
         }
 
         return levels.map { level in
-            let normalized = min(max(level / referenceLevel, 0), 1)
-            let decibels = 20 * log10(max(normalized, 0.000_1))
-            let loudness = min(max((decibels + 45) / 45, 0), 1)
-            return CGFloat(min(max(pow(loudness, 1.35) * 0.82 + 0.03, 0.03), 0.88))
+            let decibels = 20 * log10(max(level, 0.000_1))
+            let normalized = min(max((decibels - quietReference) / (loudReference - quietReference), 0), 1)
+            let contrasted = pow(normalized, 1.65)
+            return CGFloat(min(max(contrasted * 0.86 + 0.025, 0.025), 0.88))
         }
     }
 

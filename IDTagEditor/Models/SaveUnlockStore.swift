@@ -9,8 +9,11 @@ final class SaveUnlockStore {
     private static let unlockedDefaultsKey = "SaveUnlockStore.isUnlocked"
 
     private(set) var product: Product?
-    private(set) var isUnlocked = UserDefaults.standard.bool(forKey: SaveUnlockStore.unlockedDefaultsKey) {
+    private(set) var isUnlocked = SaveUnlockStore.initialUnlockedState {
         didSet {
+            guard !Self.isDirectDistributionBuild else {
+                return
+            }
             UserDefaults.standard.set(isUnlocked, forKey: Self.unlockedDefaultsKey)
         }
     }
@@ -21,6 +24,10 @@ final class SaveUnlockStore {
     @ObservationIgnored private var transactionUpdatesTask: Task<Void, Never>?
 
     init() {
+        guard !Self.isDirectDistributionBuild else {
+            return
+        }
+
         transactionUpdatesTask = Task { [weak self] in
             for await result in Transaction.updates {
                 await self?.handle(transactionResult: result)
@@ -33,11 +40,20 @@ final class SaveUnlockStore {
     }
 
     func configure() async {
+        guard !Self.isDirectDistributionBuild else {
+            isUnlocked = true
+            return
+        }
+
         await refreshPurchasedState()
         await loadProduct()
     }
 
     func loadProduct() async {
+        guard !Self.isDirectDistributionBuild else {
+            return
+        }
+
         guard product == nil, !isLoading else {
             return
         }
@@ -59,6 +75,11 @@ final class SaveUnlockStore {
 
     @discardableResult
     func purchase() async -> Bool {
+        guard !Self.isDirectDistributionBuild else {
+            isUnlocked = true
+            return true
+        }
+
         if product == nil {
             await loadProduct()
         }
@@ -98,6 +119,11 @@ final class SaveUnlockStore {
     }
 
     func restorePurchases() async {
+        guard !Self.isDirectDistributionBuild else {
+            isUnlocked = true
+            return
+        }
+
         do {
             try await AppStore.sync()
             await refreshPurchasedState()
@@ -107,6 +133,11 @@ final class SaveUnlockStore {
     }
 
     func refreshPurchasedState() async {
+        guard !Self.isDirectDistributionBuild else {
+            isUnlocked = true
+            return
+        }
+
         var hasSaveUnlock = false
 
         for await result in Transaction.currentEntitlements {
@@ -124,6 +155,10 @@ final class SaveUnlockStore {
     }
 
     private func handle(transactionResult result: VerificationResult<Transaction>) async {
+        guard !Self.isDirectDistributionBuild else {
+            return
+        }
+
         guard let transaction = try? verifiedTransaction(from: result) else {
             return
         }
@@ -142,5 +177,20 @@ final class SaveUnlockStore {
         case .unverified(_, let error):
             throw error
         }
+    }
+
+    private static var initialUnlockedState: Bool {
+        if isDirectDistributionBuild {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: unlockedDefaultsKey)
+    }
+
+    private static var isDirectDistributionBuild: Bool {
+        #if DIRECT_DISTRIBUTION
+        true
+        #else
+        false
+        #endif
     }
 }

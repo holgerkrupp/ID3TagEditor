@@ -32,7 +32,7 @@ struct FrameRowView: View {
                                     .foregroundStyle(.secondary)
                                     .frame(width: 140, alignment: .leading)
 
-                                if editor?.isEditing == true, detail.label == "Values", frame.frameID.hasPrefix("T") {
+                                if editor?.isEditing == true, (detail.label == "Values" || detail.label == "Value"), editor?.mediaKind == .mp4 || frame.frameID.hasPrefix("T") {
                                     EditableCommitTextField(
                                         title: detail.label,
                                         value: editor?.textValue(for: frame.frameID) ?? detail.value,
@@ -103,6 +103,13 @@ struct FrameRowView: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .onTapGesture {
+            selection = TagSelection(frameSelectionID: frame.selectionID, byteRange: frame.byteRange)
+        }
+        .selectableElement(
+            label: "\(frame.tagName), \(frame.frameID)",
+            value: "\(frame.summary), \(frame.bodySize) bytes",
+            hint: "Selects this frame, expands details with the disclosure control, and highlights its bytes in the hex view."
+        ) {
             selection = TagSelection(frameSelectionID: frame.selectionID, byteRange: frame.byteRange)
         }
     }
