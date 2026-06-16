@@ -5,7 +5,7 @@ import StoreKit
 @Observable
 @MainActor
 final class SaveUnlockStore {
-    static let productID = "de.holgerkrupp.IDTagEditor.saveUnlock"
+    static let productID = "de.holgerkrupp.IDTagEditor.saveUnlock2"
     private static let unlockedDefaultsKey = "SaveUnlockStore.isUnlocked"
 
     private(set) var product: Product?

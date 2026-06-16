@@ -6,13 +6,17 @@ import AppKit
 #endif
 
 struct DocumentHeaderView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let document: TagDocument
+    let isIdentifyingWithShazam: Bool
     @State private var artworkOptions = ArtworkAdjustmentOptions()
     @State private var isArtworkImporterPresented = false
     @State private var artworkError: String?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        (horizontalSizeClass == .compact
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 16))) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(document.displayName)
                     .font(.largeTitle.weight(.semibold))
@@ -22,6 +26,7 @@ struct DocumentHeaderView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if let editor = document.editorSession, editor.isEditing {
                     HStack(spacing: 8) {
@@ -42,6 +47,18 @@ struct DocumentHeaderView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if isIdentifyingWithShazam {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Identifying with Shazam...")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Identifying with Shazam")
+                }
+
                 if let artworkError {
                     Text(artworkError)
                         .font(.caption)
@@ -49,9 +66,11 @@ struct DocumentHeaderView: View {
                 }
             }
 
-            Spacer(minLength: 20)
+            if horizontalSizeClass != .compact {
+                Spacer(minLength: 20)
+            }
 
-            VStack(alignment: .trailing, spacing: 10) {
+            VStack(alignment: horizontalSizeClass == .compact ? .leading : .trailing, spacing: 10) {
                 ArtworkView(
                     imageData: document.editorSession?.embeddedArtwork?.data ?? document.topLevelTagFrames.first(where: { $0.frameID == "APIC" })?.imageData,
                     size: 104,
@@ -103,12 +122,13 @@ struct DocumentHeaderView: View {
                         }
                     }
                     .font(.caption)
-                    .frame(width: 430, alignment: .trailing)
+                    .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 430, alignment: horizontalSizeClass == .compact ? .leading : .trailing)
                     .accessibilityLabel("Artwork tools")
                 }
             }
         }
-        .padding(22)
+        .padding(horizontalSizeClass == .compact ? 16 : 22)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .glassPanel(cornerRadius: 26)
         .accessibilityElement(children: .contain)
         .fileImporter(

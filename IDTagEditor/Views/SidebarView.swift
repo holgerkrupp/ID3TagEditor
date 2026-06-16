@@ -1,11 +1,14 @@
 import SwiftUI
 
 struct SidebarView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Bindable var model: TagViewerModel
 
     var body: some View {
         VStack(spacing: 18) {
-            DropZoneView()
+            if horizontalSizeClass != .compact {
+                DropZoneView()
+            }
 
             List(selection: $model.selectedIDs) {
                 ForEach(model.documents) { document in
@@ -30,6 +33,24 @@ struct SidebarView: View {
             .scrollContentBackground(.hidden)
             .accessibilityLabel("Loaded files")
         }
-        .padding(18)
+        .padding(horizontalSizeClass == .compact ? 8 : 18)
+        .navigationTitle("Files")
+        #if os(iOS)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    model.openFileImporter()
+                } label: {
+                    Label("Open", systemImage: "folder")
+                }
+
+                Button {
+                    model.loadFromPasteboard()
+                } label: {
+                    Label("Paste", systemImage: "doc.on.clipboard")
+                }
+            }
+        }
+        #endif
     }
 }

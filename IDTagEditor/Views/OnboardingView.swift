@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private let features: [OnboardingFeature] = [
         OnboardingFeature(
@@ -37,35 +38,40 @@ struct OnboardingView: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            header
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                header
 
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
-                ForEach(features) { feature in
-                    OnboardingFeatureCard(feature: feature)
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
+                    ForEach(features) { feature in
+                        OnboardingFeatureCard(feature: feature)
+                    }
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        onboardingHint
+                        Spacer()
+                        getStartedButton
+                    }
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        onboardingHint
+                        getStartedButton
+                            .frame(maxWidth: .infinity)
+                    }
                 }
             }
-
-            HStack {
-                Text("You can reopen this screen from View > Show Onboarding.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button("Get Started") {
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-            }
+            .padding(horizontalSizeClass == .compact ? 20 : 28)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
         }
-        .padding(28)
-        .frame(width: 720)
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 16) {
+        (horizontalSizeClass == .compact
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 16))) {
             Image(systemName: "tag")
                 .font(.system(size: 42, weight: .semibold))
                 .foregroundStyle(.tint)
@@ -75,6 +81,7 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Welcome to TagFrame")
                     .font(.largeTitle.weight(.semibold))
+                    .minimumScaleFactor(0.8)
 
                 Text("Inspect, identify, edit, repair, and save ID3 metadata for individual MP3 files or full album batches.")
                     .font(.title3)
@@ -85,10 +92,21 @@ struct OnboardingView: View {
     }
 
     private var columns: [GridItem] {
-        [
-            GridItem(.flexible(), spacing: 14),
-            GridItem(.flexible(), spacing: 14)
-        ]
+        Array(repeating: GridItem(.flexible(), spacing: 14), count: horizontalSizeClass == .compact ? 1 : 2)
+    }
+
+    private var onboardingHint: some View {
+        Text("You can reopen this screen from the app menu.")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+    }
+
+    private var getStartedButton: some View {
+        Button("Get Started") {
+            dismiss()
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
     }
 }
 

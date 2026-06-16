@@ -13,8 +13,10 @@ struct IDTagEditorApp: App {
         WindowGroup {
             ContentView()
         }
+        #if os(macOS)
         .commands {
             IDTagEditorCommands()
         }
+        #endif
     }
 }

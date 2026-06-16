@@ -629,3 +629,131 @@ private final class HexEditorCanvas: NSView {
     }
 }
 #endif
+
+#if os(iOS)
+private struct HexEditorRepresentable: View {
+    var data: Data
+    var isEditable: Bool
+    var diagnostics: [ID3ValidationDiagnostic]
+    var selectableFrames: [FrameReport]
+    @Binding var selection: TagSelection?
+    var onDataChange: (Data) -> Void
+
+    @State private var pageIndex = 0
+
+    private let bytesPerRow = 16
+    private let bytesPerPage = 4_096
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Button {
+                    pageIndex = max(0, pageIndex - 1)
+                } label: {
+                    Label("Previous", systemImage: "chevron.left")
+                }
+                .disabled(pageIndex == 0)
+
+                Spacer()
+
+                Text(pageDescription)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button {
+                    pageIndex = min(maxPageIndex, pageIndex + 1)
+                } label: {
+                    Label("Next", systemImage: "chevron.right")
+                }
+                .disabled(pageIndex >= maxPageIndex)
+            }
+            .labelStyle(.iconOnly)
+
+            ScrollView(.horizontal) {
+                LazyVStack(alignment: .leading, spacing: 7) {
+                    ForEach(pageOffsets, id: \.self) { offset in
+                        Button {
+                            selection = selectionForByte(at: offset)
+                        } label: {
+                            HStack(spacing: 14) {
+                                Text(String(format: "%08X", offset))
+                                    .foregroundStyle(.secondary)
+                                Text(hexString(at: offset))
+                                Text(asciiString(at: offset))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.system(.callout, design: .monospaced))
+                            .padding(.vertical, 3)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(12)
+            }
+            .background(.background.secondary)
+
+            if isEditable {
+                Text("Byte editing is available on macOS. Structured tag editing is available here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: data.count) {
+            pageIndex = min(pageIndex, maxPageIndex)
+        }
+    }
+
+    private func hexString(at offset: Int) -> String {
+        data[offset..<min(offset + bytesPerRow, data.count)]
+            .map { String(format: "%02X", $0) }
+            .joined(separator: " ")
+    }
+
+    private func asciiString(at offset: Int) -> String {
+        data[offset..<min(offset + bytesPerRow, data.count)]
+            .map { byte in
+                byte >= 0x20 && byte <= 0x7E ? String(UnicodeScalar(byte)) : "."
+            }
+            .joined()
+    }
+
+    private var pageOffsets: [Int] {
+        guard pageStart < pageEnd else {
+            return []
+        }
+        return Array(stride(from: pageStart, to: pageEnd, by: bytesPerRow))
+    }
+
+    private var pageStart: Int {
+        min(data.count, pageIndex * bytesPerPage)
+    }
+
+    private var pageEnd: Int {
+        min(data.count, pageStart + bytesPerPage)
+    }
+
+    private var maxPageIndex: Int {
+        guard !data.isEmpty else {
+            return 0
+        }
+        return (data.count - 1) / bytesPerPage
+    }
+
+    private var pageDescription: String {
+        guard !data.isEmpty else {
+            return "No bytes"
+        }
+        return "\(pageStart + 1)-\(pageEnd) of \(data.count)"
+    }
+
+    private func selectionForByte(at offset: Int) -> TagSelection? {
+        guard let frame = selectableFrames.first(where: { $0.byteRange?.contains(offset) == true }) else {
+            return nil
+        }
+        return TagSelection(frameSelectionID: frame.selectionID, byteRange: frame.byteRange)
+    }
+}
+#endif

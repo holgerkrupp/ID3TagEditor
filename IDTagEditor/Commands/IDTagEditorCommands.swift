@@ -1,4 +1,5 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
 
 struct IDTagEditorCommands: Commands {
@@ -166,6 +167,7 @@ private final class AboutWindowPresenter {
         NSApp.activate()
     }
 }
+#endif
 
 private struct TagViewerModelFocusedKey: FocusedValueKey {
     typealias Value = TagViewerModel

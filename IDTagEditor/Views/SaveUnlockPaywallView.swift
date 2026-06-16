@@ -2,10 +2,12 @@ import StoreKit
 import SwiftUI
 
 struct SaveUnlockPaywallView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Bindable var store: SaveUnlockStore
     let onDismiss: () -> Void
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .top, spacing: 16) {
                 Image(systemName: "square.and.arrow.down.badge.checkmark")
@@ -83,8 +85,10 @@ struct SaveUnlockPaywallView: View {
                 }
             }
         }
-        .padding(28)
-        .frame(width: 440)
+        .padding(horizontalSizeClass == .compact ? 20 : 28)
+        .frame(maxWidth: 440)
+        .frame(maxWidth: .infinity)
+        }
         .task {
             await store.configure()
         }

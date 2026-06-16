@@ -34,8 +34,8 @@ struct MP4MetadataDocument {
     static func load(from url: URL) async throws -> MP4MetadataDocument {
         let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
         let asset = AVURLAsset(url: url)
-        let metadata = try await asset.load(.metadata)
-        let fields = MP4MetadataField.editableFields(from: metadata)
+        let metadata = try await loadMetadata(from: asset)
+        let fields = await MP4MetadataField.editableFields(from: metadata)
 
         return MP4MetadataDocument(
             fileURL: url,
@@ -44,6 +44,27 @@ struct MP4MetadataDocument {
             fields: fields,
             artwork: fields.first(where: { $0.kind == .artwork })?.artwork
         )
+    }
+
+    private static func loadMetadata(from asset: AVAsset) async throws -> [AVMetadataItem] {
+        async let commonMetadata = asset.load(.commonMetadata)
+        async let metadata = asset.load(.metadata)
+        let formats = try await asset.load(.availableMetadataFormats)
+
+        var items = try await commonMetadata + metadata
+        for format in formats {
+            items.append(contentsOf: try await asset.loadMetadata(for: format))
+        }
+
+        var seen = Set<String>()
+        return items.filter { item in
+            let identity = [
+                item.identifier?.rawValue ?? "",
+                item.keySpace?.rawValue ?? "",
+                String(describing: item.key)
+            ].joined(separator: "|")
+            return seen.insert(identity).inserted
+        }
     }
 
     func textValue(for id: String) -> String? {
@@ -169,7 +190,7 @@ struct MP4MetadataField {
         self.init(kind: kind, value: "\(artwork.mimeType), \(artwork.data.count) bytes", artwork: artwork)
     }
 
-    static func editableFields(from metadata: [AVMetadataItem]) -> [MP4MetadataField] {
+    static func editableFields(from metadata: [AVMetadataItem]) async -> [MP4MetadataField] {
         var fields: [MP4MetadataField] = []
 
         for kind in MP4MetadataKind.allCases {
@@ -183,21 +204,13 @@ struct MP4MetadataField {
             }
 
             if kind == .artwork {
-                if let artwork = artwork(from: item) {
+                if let artwork = await artwork(from: item) {
                     fields.append(MP4MetadataField(kind: kind, artwork: artwork))
                 }
-            } else if let value = item.stringValue?.nilIfEmpty {
+            } else if let value = await textValue(from: item)?.nilIfEmpty {
                 fields.append(MP4MetadataField(kind: kind, value: value, sourceIdentifier: item.identifier))
             }
         }
-
-        let existingKinds = Set(fields.map(\.kind))
-        fields.append(contentsOf: MP4MetadataKind.allCases.compactMap { kind in
-            guard kind != .artwork, !existingKinds.contains(kind) else {
-                return nil
-            }
-            return MP4MetadataField(kind: kind)
-        })
 
         return fields
     }
@@ -226,8 +239,27 @@ struct MP4MetadataField {
         return item.copy() as? AVMetadataItem
     }
 
-    private static func artwork(from item: AVMetadataItem) -> ShazamID3Identifier.Artwork? {
-        guard let data = item.dataValue ?? item.value as? Data else {
+    private static func textValue(from item: AVMetadataItem) async -> String? {
+        if let string = try? await item.load(.stringValue) {
+            return string.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let value = try? await item.load(.value) else {
+            return nil
+        }
+        return describe(value).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func artwork(from item: AVMetadataItem) async -> ShazamID3Identifier.Artwork? {
+        let data: Data?
+        if let loadedData = try? await item.load(.dataValue) {
+            data = loadedData
+        } else if let value = try? await item.load(.value) {
+            data = value as? Data ?? (value as? NSData).map(Data.init(referencing:))
+        } else {
+            data = nil
+        }
+
+        guard let data else {
             return nil
         }
         let mimeType = item.dataType == kCMMetadataBaseDataType_PNG as String ? "image/png" : "image/jpeg"

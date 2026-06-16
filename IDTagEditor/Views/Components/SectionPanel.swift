@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SectionPanel<Content: View>: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let title: String
     let subtitle: String?
     @ViewBuilder let content: Content
@@ -13,11 +14,15 @@ struct SectionPanel<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
+            (horizontalSizeClass == .compact
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                : AnyLayout(HStackLayout(alignment: .firstTextBaseline))) {
                 Text(title)
                     .font(.title2.weight(.semibold))
 
-                Spacer()
+                if horizontalSizeClass != .compact {
+                    Spacer()
+                }
 
                 if let subtitle {
                     Text(subtitle)
@@ -28,7 +33,7 @@ struct SectionPanel<Content: View>: View {
 
             content
         }
-        .padding(18)
+        .padding(horizontalSizeClass == .compact ? 14 : 18)
         .glassPanel(cornerRadius: 22)
     }
 }

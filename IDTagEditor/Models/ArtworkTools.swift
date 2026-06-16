@@ -2,9 +2,11 @@ import Foundation
 import Observation
 import UniformTypeIdentifiers
 
+import ImageIO
 #if os(macOS)
 import AppKit
-import ImageIO
+#else
+import UIKit
 #endif
 
 enum ArtworkOutputFormat: String, CaseIterable, Identifiable {
@@ -93,15 +95,17 @@ enum ArtworkProcessor {
               let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             throw ArtworkProcessingError.invalidImage
         }
+        #else
+        guard let image = UIImage(data: data), let cgImage = image.cgImage else {
+            throw ArtworkProcessingError.invalidImage
+        }
+        #endif
 
         let options = options.snapshot()
         let cropped = options.cropToSquare ? squareCropped(cgImage) : cgImage
         let resized = resizedImage(cropped, maxPixelSize: max(64, Int(options.maxPixelSize.rounded()))) ?? cropped
         let encoded = try encode(resized, format: options.outputFormat, jpegQuality: options.jpegQuality)
         return ShazamID3Identifier.Artwork(data: encoded, mimeType: options.outputFormat.mimeType)
-        #else
-        throw ArtworkProcessingError.invalidImage
-        #endif
     }
 
     static func fileExtension(for mimeType: String) -> String {
@@ -112,7 +116,6 @@ enum ArtworkProcessor {
         }
     }
 
-    #if os(macOS)
     private static func squareCropped(_ image: CGImage) -> CGImage {
         let side = min(image.width, image.height)
         let rect = CGRect(
@@ -166,5 +169,4 @@ enum ArtworkProcessor {
         }
         return data as Data
     }
-    #endif
 }

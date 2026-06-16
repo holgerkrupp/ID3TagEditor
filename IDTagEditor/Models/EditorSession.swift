@@ -84,6 +84,10 @@ final class EditorSession {
         statusMessage = nil
     }
 
+    func finishEditing() {
+        isEditing = false
+    }
+
     func cancelEditing() {
         isEditing = false
         statusMessage = nil

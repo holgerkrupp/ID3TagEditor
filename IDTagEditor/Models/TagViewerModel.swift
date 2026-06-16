@@ -1,17 +1,82 @@
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 
 @Observable
 @MainActor
 final class TagViewerModel {
+    private static let saveLogger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "de.holgerkrupp.IDTagEditor",
+        category: "SaveFlow"
+    )
+    private static let recentDocumentsDefaultsKey = "TagViewerModel.recentDocuments"
+    private static let recentDocumentsLimit = 10
+
     private enum PendingSaveAction {
         case activeItem
         case selectedDocumentAs
         case batchAlbum
+        case finishEditing(TagDocument.ID)
+
+        var logName: String {
+            switch self {
+            case .activeItem:
+                "Save"
+            case .selectedDocumentAs:
+                "Save As"
+            case .batchAlbum:
+                "Batch Save"
+            case .finishEditing:
+                "Finish Editing"
+            }
+        }
+    }
+
+    private struct RecentDocumentRecord: Codable, Hashable {
+        let path: String
+        let bookmarkData: Data
+
+        init?(fileURL: URL) {
+            guard fileURL.isFileURL else {
+                return nil
+            }
+
+            path = fileURL.standardizedFileURL.resolvingSymlinksInPath().path
+
+            do {
+                bookmarkData = try fileURL.bookmarkData(
+                    options: [],
+                    includingResourceValuesForKeys: nil,
+                    relativeTo: nil
+                )
+            } catch {
+                return nil
+            }
+        }
+
+        func resolvedURL() -> URL? {
+            var isStale = false
+            if let resolvedURL = try? URL(
+                resolvingBookmarkData: bookmarkData,
+                options: [],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) {
+                return resolvedURL
+            }
+
+            return URL(fileURLWithPath: path)
+        }
+
+        func matches(_ url: URL) -> Bool {
+            path == url.standardizedFileURL.resolvingSymlinksInPath().path
+        }
     }
 
     var documents: [TagDocument] = []
@@ -46,6 +111,50 @@ final class TagViewerModel {
 
     func openFileImporter() {
         isImporterPresented = true
+    }
+
+    func restoreRecentlyOpenedFiles() async {
+        guard documents.isEmpty else {
+            return
+        }
+
+        let records = loadRecentDocumentRecords()
+        guard !records.isEmpty else {
+            return
+        }
+
+        var restoredDocuments: [TagDocument] = []
+        var validRecords: [RecentDocumentRecord] = []
+
+        for record in records {
+            guard let url = record.resolvedURL() else {
+                continue
+            }
+
+            let document = await TagDocument.load(from: url)
+            guard let sourceURL = document.sourceURL, sourceURL.isFileURL else {
+                continue
+            }
+
+            restoredDocuments.append(document)
+            validRecords.append(record)
+        }
+
+        guard !restoredDocuments.isEmpty else {
+            return
+        }
+
+        documents = restoredDocuments
+        selectedID = restoredDocuments.first?.id
+        if let firstDocument = restoredDocuments.first {
+            selectedIDs = [firstDocument.id]
+        } else {
+            selectedIDs = []
+        }
+
+        if validRecords.count != records.count {
+            saveRecentDocumentRecords(validRecords)
+        }
     }
 
     var canSaveActiveItem: Bool {
@@ -101,6 +210,7 @@ final class TagViewerModel {
     }
 
     func showSaveUnlock() {
+        Self.saveLogger.notice("PAYWALL PRESENTED: User selected Unlock Saving.")
         pendingSaveAction = nil
         isSavePaywallPresented = true
     }
@@ -122,14 +232,22 @@ final class TagViewerModel {
             performSaveSelectedDocumentAs()
         case .batchAlbum:
             performSaveBatchAlbum()
+        case .finishEditing(let documentID):
+            performFinishEditing(documentID: documentID)
         }
     }
 
     private func ensureSaveUnlocked(for action: PendingSaveAction) -> Bool {
         guard !saveUnlockStore.isUnlocked else {
+            Self.saveLogger.notice(
+                "PAYWALL BYPASSED: \(action.logName, privacy: .public) would show the paywall, but saving is already unlocked."
+            )
             return true
         }
 
+        Self.saveLogger.notice(
+            "PAYWALL PRESENTED: \(action.logName, privacy: .public) requires the save unlock purchase."
+        )
         pendingSaveAction = action
         isSavePaywallPresented = true
         return false
@@ -162,6 +280,7 @@ final class TagViewerModel {
 
     private func performSaveBatchAlbum() {
         batchEditor?.saveAll()
+        Self.saveLogger.notice("SAVE FINISHED: Batch save attempt completed.")
     }
 
     func recalculateSelectedTagSizes() {
@@ -191,10 +310,64 @@ final class TagViewerModel {
         }
 
         if editor.isEditing {
-            editor.cancelEditing()
+            dismissFocusedEditor()
+            Task {
+                await Task.yield()
+                finishEditing(documentID: document.id)
+            }
         } else {
             editor.enableEditing()
         }
+    }
+
+    private func finishEditing(documentID: TagDocument.ID) {
+        guard let editor = documents.first(where: { $0.id == documentID })?.editorSession,
+              editor.isEditing else {
+            return
+        }
+
+        guard editor.isDirty else {
+            editor.finishEditing()
+            return
+        }
+
+        guard ensureSaveUnlocked(for: .finishEditing(documentID)) else {
+            return
+        }
+
+        performFinishEditing(documentID: documentID)
+    }
+
+    private func performFinishEditing(documentID: TagDocument.ID) {
+        guard let editor = documents.first(where: { $0.id == documentID })?.editorSession else {
+            return
+        }
+
+        do {
+            try editor.save()
+            editor.finishEditing()
+            Self.saveLogger.notice(
+                "SAVE SUCCEEDED: Finished editing and saved \(editor.sourceFileURL.lastPathComponent, privacy: .public)."
+            )
+        } catch {
+            Self.saveLogger.error(
+                "SAVE FAILED: \(editor.sourceFileURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+            alertMessage = error.localizedDescription
+        }
+    }
+
+    private func dismissFocusedEditor() {
+        #if os(macOS)
+        NSApp.keyWindow?.makeFirstResponder(nil)
+        #else
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+        #endif
     }
 
     func saveSelectedDocument() {
@@ -204,7 +377,13 @@ final class TagViewerModel {
 
         do {
             try editor.save()
+            Self.saveLogger.notice(
+                "SAVE SUCCEEDED: Saved \(editor.sourceFileURL.lastPathComponent, privacy: .public)."
+            )
         } catch {
+            Self.saveLogger.error(
+                "SAVE FAILED: \(editor.sourceFileURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
             alertMessage = error.localizedDescription
         }
     }
@@ -230,7 +409,13 @@ final class TagViewerModel {
         if panel.runModal() == .OK, let url = panel.url {
             do {
                 try editor.saveAs(to: url)
+                Self.saveLogger.notice(
+                    "SAVE SUCCEEDED: Save As wrote \(url.lastPathComponent, privacy: .public)."
+                )
             } catch {
+                Self.saveLogger.error(
+                    "SAVE FAILED: Save As for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
                 alertMessage = error.localizedDescription
             }
         }
@@ -314,6 +499,10 @@ final class TagViewerModel {
             selectedID = document.id
             selectedIDs = [document.id]
             batchEditor = nil
+
+            if let sourceURL = document.sourceURL {
+                rememberRecentlyOpenedFile(sourceURL)
+            }
         }
     }
 
@@ -361,6 +550,26 @@ final class TagViewerModel {
         documents.insert(.message(source: "Pasteboard", message: "No MP3 file or URL was found on the pasteboard."), at: 0)
         selectedID = documents.first?.id
         selectedIDs = Set(documents.prefix(1).map(\.id))
+        #else
+        if UIPasteboard.general.hasURLs, let url = UIPasteboard.general.url {
+            load(url)
+            return
+        }
+
+        if let string = UIPasteboard.general.string {
+            let candidates = string
+                .split(whereSeparator: \.isNewline)
+                .map(String.init)
+                .compactMap(URL.init(string:))
+            if !candidates.isEmpty {
+                load(candidates)
+                return
+            }
+        }
+
+        documents.insert(.message(source: "Pasteboard", message: "No audio file or URL was found on the pasteboard."), at: 0)
+        selectedID = documents.first?.id
+        selectedIDs = Set(documents.prefix(1).map(\.id))
         #endif
     }
 
@@ -385,6 +594,33 @@ final class TagViewerModel {
             return nil
         }
         return try? await ShazamID3Identifier.fetchArtwork(from: artworkURL)
+    }
+
+    private func loadRecentDocumentRecords() -> [RecentDocumentRecord] {
+        guard let data = UserDefaults.standard.data(forKey: Self.recentDocumentsDefaultsKey) else {
+            return []
+        }
+
+        return (try? JSONDecoder().decode([RecentDocumentRecord].self, from: data)) ?? []
+    }
+
+    private func saveRecentDocumentRecords(_ records: [RecentDocumentRecord]) {
+        guard let data = try? JSONEncoder().encode(Array(records.prefix(Self.recentDocumentsLimit))) else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: Self.recentDocumentsDefaultsKey)
+    }
+
+    private func rememberRecentlyOpenedFile(_ url: URL) {
+        guard let record = RecentDocumentRecord(fileURL: url) else {
+            return
+        }
+
+        var records = loadRecentDocumentRecords()
+        records.removeAll { $0.matches(url) }
+        records.insert(record, at: 0)
+        saveRecentDocumentRecords(records)
     }
 
     private func isFolder(_ url: URL) -> Bool {

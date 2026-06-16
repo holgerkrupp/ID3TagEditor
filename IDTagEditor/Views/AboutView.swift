@@ -1,12 +1,24 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 
 struct AboutView: View {
     var body: some View {
         VStack(spacing: 18) {
+            #if os(macOS)
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 96, height: 96)
+            #else
+            Image(systemName: "tag.fill")
+                .font(.system(size: 54, weight: .semibold))
+                .foregroundStyle(.tint)
+                .frame(width: 96, height: 96)
+                .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 22))
+            #endif
 
             VStack(spacing: 4) {
                 Text("TagFrame")
@@ -20,7 +32,7 @@ struct AboutView: View {
             AboutCreatedByView()
         }
         .padding(28)
-        .frame(width: 360)
+        .frame(maxWidth: 360)
     }
 }
 

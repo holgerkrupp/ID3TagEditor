@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct FrameRowView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let frame: FrameReport
     var editor: EditorSession?
     @Binding var selection: TagSelection?
@@ -13,24 +14,30 @@ struct FrameRowView: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 12) {
-                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
-                    InfoRow(label: "Frame ID", value: frame.frameID)
-                    InfoRow(label: "Tag name", value: frame.tagName)
-                    InfoRow(label: "Original ID", value: frame.originalID)
-                    InfoRow(label: "Header size", value: "\(frame.headerSize) bytes")
-                    InfoRow(label: "Body size", value: "\(frame.bodySize) bytes")
-                    InfoRow(label: "Total size", value: "\(frame.totalSize) bytes")
-                    InfoRow(label: "Flags", value: frame.flagsSummary)
+                if horizontalSizeClass == .compact {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(infoRows, id: \.label) { row in
+                            CompactInfoRow(label: row.label, value: row.value)
+                        }
+                    }
+                } else {
+                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
+                        ForEach(infoRows, id: \.label) { row in
+                            InfoRow(label: row.label, value: row.value)
+                        }
+                    }
                 }
 
                 if !frame.details.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(frame.details) { detail in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            (horizontalSizeClass == .compact
+                                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 3))
+                                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))) {
                                 Text(detail.label)
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
-                                    .frame(width: 140, alignment: .leading)
+                                    .frame(width: horizontalSizeClass == .compact ? nil : 140, alignment: .leading)
 
                                 if editor?.isEditing == true, (detail.label == "Values" || detail.label == "Value"), editor?.mediaKind == .mp4 || frame.frameID.hasPrefix("T") {
                                     EditableCommitTextField(
@@ -72,6 +79,7 @@ struct FrameRowView: View {
             }
             .padding(.top, 10)
         } label: {
+            ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) {
                 Text(frame.frameID)
                     .font(.system(.headline, design: .monospaced))
@@ -91,6 +99,23 @@ struct FrameRowView: View {
                 Text("\(frame.bodySize) bytes")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(frame.frameID)
+                        .font(.system(.headline, design: .monospaced))
+                    Spacer()
+                    Text("\(frame.bodySize) bytes")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Text(frame.tagName)
+                    .font(.headline)
+                Text(frame.summary)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .foregroundStyle(.secondary)
+            }
             }
         }
         .padding(14)
@@ -112,5 +137,17 @@ struct FrameRowView: View {
         ) {
             selection = TagSelection(frameSelectionID: frame.selectionID, byteRange: frame.byteRange)
         }
+    }
+
+    private var infoRows: [(label: String, value: String)] {
+        [
+            ("Frame ID", frame.frameID),
+            ("Tag name", frame.tagName),
+            ("Original ID", frame.originalID),
+            ("Header size", "\(frame.headerSize) bytes"),
+            ("Body size", "\(frame.bodySize) bytes"),
+            ("Total size", "\(frame.totalSize) bytes"),
+            ("Flags", frame.flagsSummary)
+        ]
     }
 }

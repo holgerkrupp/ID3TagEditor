@@ -259,7 +259,9 @@ struct BatchAlbumEditorView: View {
                     Toggle("Track Numbers", isOn: $batch.applyOptions.trackNumber)
                 }
             }
+            #if os(macOS)
             .toggleStyle(.checkbox)
+            #endif
         }
     }
 
@@ -357,7 +359,9 @@ struct BatchAlbumEditorView: View {
                     }
                     GridRow {
                         Toggle("Regex", isOn: $batch.findReplaceUsesRegex)
+                            #if os(macOS)
                             .toggleStyle(.checkbox)
+                            #endif
                         Picker("Transform", selection: $batch.textTransform) {
                             ForEach(BatchTextTransform.allCases) { transform in
                                 Text(transform.rawValue).tag(transform)
@@ -391,7 +395,9 @@ struct BatchAlbumEditorView: View {
                             ))
                         }
                     }
+                    #if os(macOS)
                     .toggleStyle(.checkbox)
+                    #endif
                 }
 
                 PreviewTable(rows: findReplacePreview)
@@ -774,7 +780,7 @@ private struct MusicBrainzCandidateRow: View {
             .background(isSelected ? Color.accentColor.opacity(0.14) : Color.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.accentColor.opacity(0.7) : Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
+                    .stroke(isSelected ? Color.accentColor.opacity(0.7) : Color.secondary.opacity(0.35), lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
@@ -832,7 +838,9 @@ private struct BatchAlbumTrackRow: View {
                     set: { batch.setTrackSelected(track, isSelected: $0) }
                 ))
                 .labelsHidden()
+                #if os(macOS)
                 .toggleStyle(.checkbox)
+                #endif
                 .accessibilityLabel("Select \(track.fileURL.lastPathComponent)")
                 .controlHelp("Include this track in batch operations.")
 
